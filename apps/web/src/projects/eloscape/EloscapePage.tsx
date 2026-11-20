@@ -239,7 +239,7 @@ export function EloscapePage() {
           <div className="panel">
             <div className="row">
               <h2 style={{ margin: 0 }}>Private balance</h2>
-              <span className="stat">{bal === null ? "—" : `${fmt(bal)} HYPE`}</span>
+              <span className="stat" data-testid="private-balance">{bal === null ? (ready ? "Syncing…" : "—") : `${fmt(bal)} HYPE`}</span>
             </div>
             {!ready ? (
               <p className="muted small">Connect and sign once to open your private account. The same wallet always restores it.</p>
