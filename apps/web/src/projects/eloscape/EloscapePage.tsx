@@ -15,6 +15,7 @@ const fmt = (v: bigint, d = 4) => {
 };
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 type BookSeat = Seat & { label: string; done?: boolean };
+const blockWord = (bs: number[]) => `block${bs.length > 1 ? "s" : ""} ${bs.map((b) => b + 1).join(", ")}`;
 
 function useRound() {
   const [round, setRound] = useState<LiveRound | null>(null);
@@ -123,12 +124,12 @@ export function EloscapePage() {
     const on = (s: string) => setStatus(s);
     if (mode === "auto") {
       return run("Starting Private Auto", async () => {
-        const label = `Auto · blocks ${blocks.map((b) => b + 1).join(", ")} · ${perBlock}/block`;
+        const label = `Auto · ${blockWord(blocks)} · ${perBlock}/block`;
         const r = await privateAuto(p.core, { amount: stake, blocks, perBlock: parseEther(perBlock), fallbackTo, onSeat: (s) => remember([s], label) }, on);
         setStatus(`Auto is running from seat ${short(r.seat.account)}.`);
       });
     }
-    const label = `${split ? "Split" : "Play"}${sealed ? " · sealed" : ""} · blocks ${blocks.map((b) => b + 1).join(", ")} · ${amount} HYPE`;
+    const label = `${split ? "Split" : "Play"}${sealed ? " · sealed" : ""} · ${blockWord(blocks)} · ${amount} HYPE`;
     const onSeat = (s: Seat) => remember([s], label);
     return run("Preparing your private play", async () => {
       if (split) {
@@ -166,7 +167,7 @@ export function EloscapePage() {
       <TopBar
         right={
           ready ? (
-            <span className="pill live">● Private · {short(p!.address)}</span>
+            <span className="pill live" title={`Wallet ${short(p!.address)} (shown only on this device)`}>● Private mode on</span>
           ) : (
             <button className="btn primary" onClick={connect} disabled={busy}>
               Connect & go private
