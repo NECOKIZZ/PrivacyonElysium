@@ -2,7 +2,10 @@
   "name": "privacy-for-elysium",
   "private": true,
   "type": "module",
-  "workspaces": ["projects/*", "apps/*"],
+  "workspaces": [
+    "projects/*",
+    "apps/*"
+  ],
   "scripts": {
     "dev": "npm run dev -w apps/web",
     "build": "npm run build -w apps/web",
@@ -10,6 +13,7 @@
     "test:fork": "NODE_USE_ENV_PROXY=1 tsx test/eloscape.fork.ts"
   },
   "devDependencies": {
+    "@types/node": "^22.10.2",
     "tsx": "4.19.2",
     "typescript": "5.6.3"
   },

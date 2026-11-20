@@ -18,14 +18,20 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const DAY = 86_400n;
 
 export interface SeatOptions {
-  /** Where the seat's funds go if the player never returns them (after `exitAfterDays`). */
-  fallbackTo: Address;
+  /**
+   * Where the seat's funds go if the player never returns them (after `exitAfterDays`). It's part of the seat's key,
+   * which every call from the seat carries in the clear: NEVER the player's wallet. Use a fresh receive address of the
+   * player's private account (GloamPrivate.receiveAddress), which collects back into the private balance.
+   */
+  fallbackTo: Address | (() => Promise<Address>);
   exitAfterDays?: number;
+  /** Called as soon as each seat is opened (its note has left the vault), before it plays: save it right away. */
+  onSeat?: (seat: Seat) => void;
 }
 
-const seatParams = (o: SeatOptions, amount: bigint, exclude?: Set<bigint>) => ({
+const seatParams = async (o: SeatOptions, amount: bigint, exclude?: Set<bigint>) => ({
   amount,
-  fallbackTo: o.fallbackTo,
+  fallbackTo: typeof o.fallbackTo === "function" ? await o.fallbackTo() : o.fallbackTo,
   exitAfter: BigInt(Math.floor(Date.now() / 1000)) + BigInt(o.exitAfterDays ?? 7) * DAY,
   game: ELOSCAPE.game,
   exclude,
@@ -53,7 +59,8 @@ async function waitFunded(core: GloamCore, seat: Seat): Promise<void> {
 
 /** Private Play: one manual play this round, from a fresh seat. */
 export async function privatePlay(core: GloamCore, p: { amount: bigint; blocks: number[] } & SeatOptions, onStatus: Status = () => {}) {
-  const seat = await openSeat(core, seatParams(p, p.amount), onStatus);
+  const seat = await openSeat(core, await seatParams(p, p.amount), onStatus);
+  p.onSeat?.(seat);
   await waitFunded(core, seat);
   onStatus("Playing from the seat");
   const tx = await seatCall(core, seat, { target: ELOSCAPE.game, value: playValue(seat.arrived, p.blocks), data: deployCall(p.blocks) });
@@ -66,7 +73,8 @@ export async function privatePlay(core: GloamCore, p: { amount: bigint; blocks: 
  */
 export async function privateAuto(core: GloamCore, p: { amount: bigint; blocks: number[]; perBlock: bigint } & SeatOptions, onStatus: Status = () => {}) {
   if (p.perBlock < MIN_DEPLOY) throw new Error("Too little per block: Eloscape's minimum is 0.0000025 HYPE per block.");
-  const seat = await openSeat(core, seatParams(p, p.amount), onStatus);
+  const seat = await openSeat(core, await seatParams(p, p.amount), onStatus);
+  p.onSeat?.(seat);
   await waitFunded(core, seat);
   const perRound = p.perBlock * BigInt(p.blocks.length);
   const rounds = seat.arrived / perRound;
@@ -89,7 +97,7 @@ export async function collect(core: GloamCore, seat: Seat, onStatus: Status = ()
     out.push(await seatCall(core, seat, { target: ELOSCAPE.game, data: stopAutoCall() }));
   }
   const after = await owed(pub, seat.account);
-  if (after.hype > 0n || o.autoActive) {
+  if (after.hype > 0n) {
     onStatus("Claiming winnings");
     out.push(await seatCall(core, seat, { target: ELOSCAPE.game, data: claimEthCall() }));
   }
@@ -146,7 +154,8 @@ export async function sealAndSend(
 }
 
 export async function sealedPlay(core: GloamCore, p: { amount: bigint; blocks: number[] } & SeatOptions, onStatus: Status = () => {}) {
-  const seat = await openSeat(core, seatParams(p, p.amount), onStatus);
+  const seat = await openSeat(core, await seatParams(p, p.amount), onStatus);
+  p.onSeat?.(seat);
   const sent = await sealAndSend(core, [seat], p.blocks, {}, onStatus);
   return { seats: [seat], ...sent };
 }
@@ -179,7 +188,8 @@ export async function splitPlay(
   const used = new Set<bigint>();
   for (let i = 0; i < pieces.length; i++) {
     onStatus(`Piece ${i + 1} of ${pieces.length}`);
-    const seat = await openSeat(core, seatParams(p, pieces[i], used), onStatus);
+    const seat = await openSeat(core, await seatParams(p, pieces[i], used), onStatus);
+    p.onSeat?.(seat);
     seats.push(seat);
   }
   if (p.sealed) return { seats, ...(await sealAndSend(core, seats, p.blocks, { jitterSeconds: Math.min(4, pieces.length) }, onStatus)) };

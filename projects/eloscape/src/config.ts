@@ -27,6 +27,8 @@ export const PRIVACY = {
   memoBoard: "0xb99db19cdeaf3779013a75f2cb7a13d0eecd075a" as Address,
   bids: "0x03344099637832bb26922dca9178675244271758" as Address,
   whype: "0x6521f9729d6c65e5e743de144f5546f334ea7d15" as Address,
+  /** Cloak's receive addresses (CloakGloamReceive): each seat's fallback is one, never the player's wallet. */
+  receive: "0xe2a8af9c67e63b7be92c3d1cc308496ba5c8ef9e" as Address,
   /** Cloak's relay: it sends every private transaction, so the player's wallet never appears. */
   relay: "https://keeper.oncloak.xyz",
 } as const;

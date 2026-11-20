@@ -1,4 +1,4 @@
-import { encodeFunctionData, parseAbi, type Address, type Hex, type PublicClient } from "viem";
+import { encodeFunctionData, hexToBigInt, parseAbi, toFunctionSelector, type Address, type Hex, type PublicClient } from "viem";
 import { ELOSCAPE } from "./config.js";
 
 /** The parts of Eloscape's ElysiumCanonicalGame this integration uses (from its verified source). */
@@ -60,12 +60,29 @@ export async function liveRound(pub: PublicClient, game: Address = ELOSCAPE.game
   return { id, startTime: Number(startTime), endTime: Number(endTime), totalDeployed, minerCount, deployed };
 }
 
-/** What an address can collect from the game now (HYPE winnings and refunds, and unclaimed ELO). */
+/** What an address can collect from the game now: HYPE (winnings and refunds, credited or not), its own balance, ELO credited so far, and its Auto. */
 export async function owed(pub: PublicClient, who: Address, game: Address = ELOSCAPE.game) {
-  const [hype, elo, auto] = await Promise.all([
-    pub.readContract({ address: game, abi: GAME_ABI, functionName: "userUnclaimedETH", args: [who] }),
+  const [after, held, elo, auto] = await Promise.all([
+    collectableHype(pub, who, game),
+    pub.getBalance({ address: who }),
     pub.readContract({ address: game, abi: GAME_ABI, functionName: "userUnclaimedELO", args: [who] }),
     pub.readContract({ address: game, abi: GAME_ABI, functionName: "standing", args: [who] }),
   ]);
-  return { hype, elo, autoActive: auto[0], autoBalance: auto[8], autoEndRound: auto[10] };
+  // hype: what claimETH would pay now (credited or not); held: already in the address
+  return { hype: after > held ? after - held : 0n, held, elo, autoActive: auto[0], autoBalance: auto[8], autoEndRound: auto[10] };
+}
+
+/**
+ * What `who` would hold right after claimETH(): its balance plus every HYPE the game owes it, including rounds the
+ * game hasn't credited yet (userUnclaimedETH only moves when a player is checkpointed, and claimETH checkpoints).
+ * Read with eth_call and a throwaway probe in place of `who`'s code: it calls claimETH, then returns its balance.
+ * Nothing is sent.
+ */
+export async function collectableHype(pub: PublicClient, who: Address, game: Address = ELOSCAPE.game): Promise<bigint> {
+  const sel = toFunctionSelector("claimETH()").slice(2);
+  const g = game.slice(2).toLowerCase();
+  // calldata empty: accept HYPE (the game's payout). Otherwise: call game.claimETH(), ignore the result, return selfbalance.
+  const code = ("0x" + "3615" + "603b" + "57" + "63" + sel + "60e01b" + "600052" + "6000600060046000600073" + g + "5af150" + "47600052" + "60206000f3" + "5b00") as Hex;
+  const r = await pub.call({ to: who, data: "0x01", stateOverride: [{ address: who, code }] });
+  return r.data && r.data !== "0x" ? hexToBigInt(r.data) : 0n;
 }

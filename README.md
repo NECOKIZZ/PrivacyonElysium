@@ -35,7 +35,9 @@ Winnings back into Gloam's vault as new private notes
 The seat is an account of Cloak's escrow `CloakGloamBids` on mainnet (`0x0334…1758`), used through its generic
 `ownerCall`. Nothing new holds funds: the money is always in Gloam's vault, in the seat, or in Eloscape's game, and
 each has a way out. If the player never returns, anyone can push a seat's funds to its fallback address after its
-timeout (7 days by default).
+timeout (7 days by default). The fallback is a fresh Cloak receive address of the player's private account (one per
+seat), never their wallet: the seat's key travels in the clear with every call, so a wallet there would undo the
+privacy. Whatever lands at a fallback is swept back into the private balance the next time the player opens the page.
 
 | Phase | Hides | How |
 |---|---|---|
@@ -52,6 +54,8 @@ Gloam's vault. Privacy grows with use: the more people use the vault, the harder
 - Eloscape's solo-block ELO bonus is paid only with a signature from Eloscape's server. HYPE winnings and split-block
   ELO don't depend on it.
 - Sealed Play needs the tab open until its play lands.
+- The page reads the chain from the browser through the public RPC, which sees the visitor's IP alongside the seats it
+  asks about. Use a VPN or your own RPC (`VITE_RPC_URL`) if that matters to you.
 - Cloak's escrow contracts haven't had an external audit yet.
 
 ## Repo

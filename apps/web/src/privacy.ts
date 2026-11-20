@@ -43,6 +43,7 @@ export async function unlockPrivate(wallet: WalletClient): Promise<Private> {
     payMemo: PRIVACY.memoBoard,
     whype: PRIVACY.whype,
     bids: PRIVACY.bids,
+    receive: PRIVACY.receive,
     provers: gloamProvers(),
     submit: gloamRelaySubmitter(RELAY_URL),
     logChunk: 50_000n,
@@ -61,6 +62,28 @@ export async function unlockPrivate(wallet: WalletClient): Promise<Private> {
 export async function privateHype(core: GloamCore): Promise<bigint> {
   await core.sync();
   return core.ownNotes(HYPE).reduce((a, n) => a + n.amount, 0n);
+}
+
+/**
+ * A fresh receive address of the private account for each seat's fallback (index 1000 onward, one per seat), so no
+ * seat's key ever names the wallet, and no two seats share a fallback. Whatever lands there collects back privately.
+ */
+export function fallbackFor(priv: GloamPrivate, wallet: string): () => Promise<`0x${string}`> {
+  return async () => {
+    const k = `pfe.fallback.v1.${CHAIN.id}.${wallet.toLowerCase()}`;
+    const st = store(k);
+    const n = Number(st.load() ?? "1000");
+    st.save(String(n + 1));
+    return priv.receiveAddress(n);
+  };
+}
+
+/** Sweep the seat fallbacks (receive addresses 1000..next) back into the private balance. */
+export async function sweepFallbacks(priv: GloamPrivate, wallet: string): Promise<number> {
+  const next = Number(store(`pfe.fallback.v1.${CHAIN.id}.${wallet.toLowerCase()}`).load() ?? "1000");
+  let made = 0;
+  for (let n = Math.max(1000, next - 50); n < next; n++) made += (await priv.collectReceived(n).catch(() => [])).length;
+  return made;
 }
 
 /** Seats this device opened, per wallet. They hold no secrets: each seat's key comes back from the account's signature. */

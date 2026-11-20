@@ -6,7 +6,7 @@ import {
 } from "@privacy-for-elysium/eloscape";
 import { Footer, TopBar } from "../../pages/chrome";
 import { connectWallet, publicClient } from "../../wallet";
-import { privateHype, seatBook, unlockPrivate, type Private } from "../../privacy";
+import { fallbackFor, privateHype, seatBook, sweepFallbacks, unlockPrivate, type Private } from "../../privacy";
 
 const EXPLORER = "https://elysium.kinetiq.xyz/explorer/address/";
 const fmt = (v: bigint, d = 4) => {
@@ -100,8 +100,10 @@ export function EloscapePage() {
       const w = wallet ?? (await connectWallet());
       setWallet(w);
       setStatus("Sign once to open your private account (no transaction, no gas)");
-      setP(await unlockPrivate(w));
+      const u = await unlockPrivate(w);
+      setP(u);
       setStatus("");
+      sweepFallbacks(u.priv, u.address).catch(() => {}); // a timed-out seat's funds, back into the private balance
     });
 
   const toggleBlock = (b: number) => setBlocks((x) => (x.includes(b) ? x.filter((y) => y !== b) : [...x, b].sort((a, c) => a - c)));
@@ -117,28 +119,26 @@ export function EloscapePage() {
   const play = () => {
     if (!p || !wallet) return;
     if (!blocks.length) return setError("Pick at least one block.");
-    const fallbackTo = wallet.account!.address as Address;
+    const fallbackTo = fallbackFor(p.priv, p.address); // a fresh receive address per seat: never the wallet
     const on = (s: string) => setStatus(s);
     if (mode === "auto") {
       return run("Starting Private Auto", async () => {
-        const r = await privateAuto(p.core, { amount: stake, blocks, perBlock: parseEther(perBlock), fallbackTo }, on);
-        remember([r.seat], `Auto · blocks ${blocks.join(", ")} · ${perBlock}/block · ${r.rounds} rounds`);
+        const label = `Auto · blocks ${blocks.map((b) => b + 1).join(", ")} · ${perBlock}/block`;
+        const r = await privateAuto(p.core, { amount: stake, blocks, perBlock: parseEther(perBlock), fallbackTo, onSeat: (s) => remember([s], label) }, on);
         setStatus(`Auto is running from seat ${short(r.seat.account)}.`);
       });
     }
-    const label = `${split ? "Split" : "Play"}${sealed ? " · sealed" : ""} · blocks ${blocks.join(", ")} · ${amount} HYPE`;
+    const label = `${split ? "Split" : "Play"}${sealed ? " · sealed" : ""} · blocks ${blocks.map((b) => b + 1).join(", ")} · ${amount} HYPE`;
+    const onSeat = (s: Seat) => remember([s], label);
     return run("Preparing your private play", async () => {
       if (split) {
-        const r = await splitPlay(p.core, { amount: stake, blocks, sealed, fallbackTo }, on);
-        remember(r.seats, label);
+        const r = await splitPlay(p.core, { amount: stake, blocks, sealed, fallbackTo, onSeat }, on);
         setStatus(`Played as ${r.seats.length} separate seats in round ${"roundId" in r ? r.roundId : round?.id}.`);
       } else if (sealed) {
-        const r = await sealedPlay(p.core, { amount: stake, blocks, fallbackTo }, on);
-        remember(r.seats, label);
+        const r = await sealedPlay(p.core, { amount: stake, blocks, fallbackTo, onSeat }, on);
         setStatus(`Sealed play landed in round ${r.roundId}.`);
       } else {
-        const r = await privatePlay(p.core, { amount: stake, blocks, fallbackTo }, on);
-        remember([r.seat], label);
+        const r = await privatePlay(p.core, { amount: stake, blocks, fallbackTo, onSeat }, on);
         setStatus(`Played from seat ${short(r.seat.account)}.`);
       }
     });

@@ -73,7 +73,8 @@ const oracleLoop = (async () => {
       const now = Number((await pub.getBlock()).timestamp);
       if (now >= r.endTime) {
         const block = forcedBlock ?? Math.floor(Math.random() * 25);
-        const data = encodeFunctionData({ abi: GAME_ABI, functionName: "onRandomnessSettled", args: [r.id, block, BigInt(Math.floor(Math.random() * 2 ** 48))] });
+        const entropy = BigInt(Math.floor(Math.random() * 2 ** 40)) * 25n + BigInt(block);
+        const data = encodeFunctionData({ abi: GAME_ABI, functionName: "onRandomnessSettled", args: [r.id, block, entropy] });
         const hash = (await rpc("eth_sendTransaction", [{ from: ELOSCAPE.randomnessOracle, to: ELOSCAPE.game, data, gas: "0x1c9c380" }])) as Hex;
         const rc = await pub.waitForTransactionReceipt({ hash, timeout: 300_000 });
         if (rc.status === "success") settledRounds++;
@@ -113,6 +114,7 @@ try {
     payMemo: PRIVACY.memoBoard,
     whype: PRIVACY.whype,
     bids: PRIVACY.bids,
+    receive: PRIVACY.receive,
     provers: gloamProvers(),
     submit,
     logChunk: 50_000n,
@@ -124,12 +126,14 @@ try {
   await A.shieldHype(alice, parseEther("3"));
   const start = await privateHype();
   check(start === parseEther("3"), `Alice holds 3 HYPE privately (${formatEther(start)})`);
-  const fallbackTo = privateKeyToAccount(generatePrivateKey()).address;
+  // as the site does: each seat's fallback is a fresh receive address of Alice's private account, never her wallet
+  let nextFallback = 1000;
+  const fallbackTo = async () => A.receiveAddress(nextFallback++);
   const exitAfter = BigInt(Math.floor(Date.now() / 1000) + 7 * 86400);
 
   // ── Phase 1: Private Play, forced win on block 7 ──────────────────────────
   log("Phase 1 · Private Play: 0.5 HYPE on block 7");
-  const seat1 = await openSeat(core, { amount: parseEther("0.5"), fallbackTo, exitAfter }, (s) => log("   ", s));
+  const seat1 = await openSeat(core, { amount: parseEther("0.5"), fallbackTo: await fallbackTo(), exitAfter }, (s) => log("   ", s));
   const r1 = await waitRoundWithAtLeast(15);
   forcedBlock = 7;
   await seatCall(core, seat1, { target: ELOSCAPE.game, value: playValue(seat1.arrived, [7]), data: deployCall([7]) });
@@ -139,23 +143,25 @@ try {
   check(aliceInRound.deployedMask === 0n, "Alice's wallet does not appear in the round");
   await waitSettled(r1.id);
   forcedBlock = null;
+  const [, , winning] = await pub.readContract({ address: ELOSCAPE.game, abi: GAME_ABI, functionName: "roundTotals", args: [r1.id] });
+  check(winning === 7, `round ${r1.id} settled on block 7`);
   const won = await owed(pub, seat1.account);
-  check(won.hype > seat1.arrived - 1n, `the seat won: ${formatEther(won.hype)} HYPE claimable, ${formatEther(won.elo)} ELO`);
+  check(won.hype > seat1.arrived, `the seat won: ${formatEther(won.hype)} HYPE to collect for ${formatEther(playValue(seat1.arrived, [7]))} played`);
   const before1 = await privateHype();
   await collect(core, seat1, (s) => log("   ", s));
   const after1 = await privateHype();
-  check(after1 - before1 === won.hype, `winnings are back in Alice's private balance (+${formatEther(after1 - before1)} HYPE)`);
+  check(after1 - before1 === won.hype + won.held, `winnings are back in Alice's private balance (+${formatEther(after1 - before1)} HYPE)`);
   check((await pub.getBalance({ address: seat1.account })) === 0n, "the seat is empty");
 
   // ── Phase 1: Private Auto over a few rounds, then stop and collect ────────
   log("Phase 1 · Private Auto: 0.3 HYPE, 0.01 per block on blocks 3 and 4");
-  const seat2 = await openSeat(core, { amount: parseEther("0.3"), fallbackTo, exitAfter }, (s) => log("   ", s));
+  const seat2 = await openSeat(core, { amount: parseEther("0.3"), fallbackTo: await fallbackTo(), exitAfter }, (s) => log("   ", s));
   await waitRoundWithAtLeast(10);
   const perBlock = parseEther("0.01");
   const rounds = seat2.arrived / (perBlock * 2n);
   await seatCall(core, seat2, { target: ELOSCAPE.game, value: rounds * perBlock * 2n, data: autoFixedCall([3, 4], perBlock) });
   const st = await pub.readContract({ address: ELOSCAPE.game, abi: GAME_ABI, functionName: "standing", args: [seat2.account] });
-  check(st[0] && st[2] === (1n << 3n) | (1n << 4n), `the seat runs Auto on blocks 3 and 4 for up to ${rounds} rounds`);
+  check(st[0] && st[2] === ((1n << 3n) | (1n << 4n)), `the seat runs Auto on blocks 3 and 4 for up to ${rounds} rounds`);
   const settledAtStart = settledRounds;
   while (settledRounds < settledAtStart + 2) await sleep(1000);
   await waitRoundWithAtLeast(5);
@@ -168,7 +174,7 @@ try {
 
   // ── Phase 2: Sealed Play ──────────────────────────────────────────────────
   log("Phase 2 · Sealed Play: 0.2 HYPE on block 12, sent 6 s before close");
-  const seat3 = await openSeat(core, { amount: parseEther("0.2"), fallbackTo, exitAfter }, (s) => log("   ", s));
+  const seat3 = await openSeat(core, { amount: parseEther("0.2"), fallbackTo: await fallbackTo(), exitAfter }, (s) => log("   ", s));
   let sealedFor = 0n;
   let sendAt = 0;
   const sealed = await sealAndSend(core, [seat3], [12], { onSealed: (_c, at, rid) => ((sendAt = at), (sealedFor = rid)) }, (s) => log("   ", s));
@@ -187,7 +193,7 @@ try {
   check(pieces.map((p) => formatEther(p)).join("+") === "0.2+0.1+0.05", `0.35 splits into ${pieces.map((p) => formatEther(p)).join(" + ")}`);
   const seats: Seat[] = [];
   const used = new Set<bigint>();
-  for (const p of pieces) seats.push(await openSeat(core, { amount: p, fallbackTo, exitAfter, exclude: used }, (s) => log("   ", s)));
+  for (const p of pieces) seats.push(await openSeat(core, { amount: p, fallbackTo: await fallbackTo(), exitAfter, exclude: used }, (s) => log("   ", s)));
   const split = await sealAndSend(core, seats, [20], { jitterSeconds: 3 }, (s) => log("   ", s));
   const distinct = new Set(seats.map((s) => s.account.toLowerCase()));
   check(distinct.size === pieces.length, `${pieces.length} separate seats played round ${split.roundId}`);
@@ -201,6 +207,9 @@ try {
   const froms = await Promise.all(sent.map((h) => pub.getTransaction({ hash: h }).then((t) => t.from.toLowerCase())));
   const relayerAddr = relayer.account.address.toLowerCase();
   check(froms.every((f) => f === relayerAddr), `all ${sent.length} private transactions were sent by the relay; Alice's wallet sent only the shield`);
+  const inputs = await Promise.all(sent.map((h) => pub.getTransaction({ hash: h }).then((t) => t.input.toLowerCase())));
+  const me = alice.account.address.slice(2).toLowerCase();
+  check(inputs.every((d) => !d.includes(me)), "Alice's address appears in none of their calldata (seat keys name a receive address, not her wallet)");
   const end = await privateHype();
   log(`Alice's private HYPE: ${formatEther(start)} → ${formatEther(end)}`);
 } catch (e) {
