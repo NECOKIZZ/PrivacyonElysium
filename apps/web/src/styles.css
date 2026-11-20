@@ -1,0 +1,124 @@
+/* Cloak's own tokens (oncloak.xyz): this site is Cloak's, never styled as the projects it lists. */
+:root {
+  --brand-ink: #10161a;
+  --brand-paper: #f8f7f4;
+  --brand-signal: #2d7388;
+  --brand-seal: #c9852e;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --brand-ink: #eef1f0;
+    --brand-paper: #0b1013;
+    --brand-signal: #6cb6cb;
+    --brand-seal: #e3a95a;
+    color-scheme: dark;
+  }
+}
+:root {
+  --bg: var(--brand-paper);
+  --text: var(--brand-ink);
+  --soft: color-mix(in srgb, var(--brand-ink) 74%, var(--brand-paper));
+  --mute: color-mix(in srgb, var(--brand-ink) 54%, var(--brand-paper));
+  --faint: color-mix(in srgb, var(--brand-ink) 36%, var(--brand-paper));
+  --line: color-mix(in srgb, var(--brand-ink) 10%, var(--brand-paper));
+  --line-strong: color-mix(in srgb, var(--brand-ink) 20%, var(--brand-paper));
+  --card: color-mix(in srgb, var(--brand-ink) 4%, var(--brand-paper));
+  --card-2: color-mix(in srgb, var(--brand-ink) 8%, var(--brand-paper));
+  --signal: var(--brand-signal);
+  --signal-soft: color-mix(in srgb, var(--brand-signal) 13%, var(--brand-paper));
+  --signal-line: color-mix(in srgb, var(--brand-signal) 40%, var(--brand-paper));
+  --seal: var(--brand-seal);
+  --seal-soft: color-mix(in srgb, var(--brand-seal) 14%, var(--brand-paper));
+  --danger: #d6453b;
+  --r-lg: 22px;
+  --r-md: 16px;
+  --r-sm: 10px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --font-body: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Inter Tight Variable", "Inter Variable", ui-sans-serif, sans-serif;
+  --font-num: "Geist Variable", "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body { font-family: var(--font-body); font-size: 15px; line-height: 1.5; -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+button { font: inherit; color: inherit; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+
+.wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+.top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 18px 0; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-family: var(--font-display); font-weight: 650; letter-spacing: -0.01em; }
+.brand img { width: 26px; height: 26px; }
+.brand small { font-weight: 450; color: var(--mute); }
+
+.btn { appearance: none; border: 1px solid var(--line-strong); background: var(--card); border-radius: 999px; padding: 9px 16px; cursor: pointer; font-weight: 550; transition: background 0.2s var(--ease), border-color 0.2s var(--ease); white-space: nowrap; }
+.btn:hover { background: var(--card-2); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+.btn.primary:hover { opacity: 0.9; }
+.btn.small { padding: 6px 12px; font-size: 13px; }
+
+.notice { border: 1px solid var(--seal); background: var(--seal-soft); border-radius: var(--r-md); padding: 12px 14px; font-size: 13.5px; color: var(--soft); }
+.notice b { color: var(--text); }
+
+.hero { padding: 48px 0 28px; }
+.eyebrow { font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--signal); font-weight: 600; }
+h1 { font-family: var(--font-display); font-size: clamp(34px, 6vw, 56px); line-height: 1.02; letter-spacing: -0.03em; margin: 10px 0 14px; font-weight: 650; }
+h2 { font-family: var(--font-display); font-size: 22px; letter-spacing: -0.015em; margin: 0 0 8px; font-weight: 620; }
+h3 { font-size: 15px; margin: 0 0 6px; font-weight: 620; }
+.lede { font-size: 17px; color: var(--soft); max-width: 640px; margin: 0; }
+.muted { color: var(--mute); }
+.small { font-size: 13px; }
+
+.grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 16px; padding: 18px 0 40px; }
+.pcard { position: relative; display: flex; flex-direction: column; gap: 14px; text-decoration: none; border: 1px solid var(--line); background: var(--card); border-radius: var(--r-lg); padding: 20px; transition: transform 0.25s var(--ease), border-color 0.25s var(--ease); min-height: 230px; }
+.pcard:hover { transform: translateY(-2px); border-color: var(--signal-line); }
+.pcard .logo { width: 48px; height: 48px; border-radius: 12px; background: #0d0d0f; display: grid; place-items: center; }
+.pcard .logo img { width: 30px; height: 30px; }
+.pcard .tag { font-family: var(--font-display); font-size: 21px; line-height: 1.15; letter-spacing: -0.015em; font-weight: 620; }
+.pcard .foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--mute); }
+.pill { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 3px 10px; font-size: 12px; font-weight: 600; border: 1px solid var(--line-strong); color: var(--soft); }
+.pill.live { color: var(--signal); border-color: var(--signal-line); background: var(--signal-soft); }
+.pcard.ghost { border-style: dashed; background: transparent; }
+
+.how { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; padding-bottom: 40px; }
+.how > div { border-top: 1px solid var(--line); padding-top: 14px; }
+.how p { margin: 0; color: var(--soft); font-size: 14px; }
+
+footer { border-top: 1px solid var(--line); padding: 22px 0 40px; color: var(--mute); font-size: 13px; }
+
+/* project page */
+.layout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px; padding: 10px 0 20px; }
+@media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+.panel { border: 1px solid var(--line); background: var(--card); border-radius: var(--r-lg); padding: 18px; }
+.panel + .panel { margin-top: 16px; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.stat { font-family: var(--font-num); font-size: 26px; letter-spacing: -0.02em; }
+
+.board { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-top: 12px; }
+.cell { aspect-ratio: 1; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--bg); display: flex; flex-direction: column; justify-content: space-between; padding: 6px 7px; cursor: pointer; text-align: left; transition: border-color 0.15s, background 0.15s; min-width: 0; }
+.cell:hover { border-color: var(--line-strong); }
+.cell.on { border-color: var(--signal); background: var(--signal-soft); }
+.cell .id { font-size: 11px; color: var(--mute); }
+.cell .amt { font-family: var(--font-num); font-size: 11.5px; color: var(--soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timer { height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; margin-top: 10px; }
+.timer > i { display: block; height: 100%; background: var(--signal); transition: width 0.9s linear; }
+
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 999px; padding: 3px; gap: 2px; }
+.seg button { border: 0; background: transparent; border-radius: 999px; padding: 6px 14px; cursor: pointer; font-weight: 550; color: var(--mute); }
+.seg button.on { background: var(--text); color: var(--bg); }
+
+label.field { display: block; margin-top: 14px; font-size: 13px; color: var(--mute); }
+.input { width: 100%; margin-top: 6px; border: 1px solid var(--line-strong); background: var(--bg); color: var(--text); border-radius: var(--r-sm); padding: 10px 12px; font-family: var(--font-num); font-size: 16px; }
+.toggle { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; cursor: pointer; }
+.toggle input { margin-top: 3px; accent-color: var(--signal); }
+.toggle span b { display: block; font-weight: 600; }
+.toggle span em { font-style: normal; color: var(--mute); font-size: 13px; }
+.status { margin-top: 12px; font-size: 13px; color: var(--soft); min-height: 20px; }
+.err { color: var(--danger); }
+.seat { border-top: 1px solid var(--line); padding: 10px 0; font-size: 13px; }
+.seat:first-child { border-top: 0; }
+code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
+.back { text-decoration: none; color: var(--mute); font-size: 14px; }
