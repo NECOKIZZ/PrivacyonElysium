@@ -130,6 +130,8 @@ export async function collect(core: GloamCore, seat: Seat, onStatus: Status = ()
 
 /** How many seconds before the round's close a sealed play is sent. */
 export const SEAL_LEAD_SECONDS = 6;
+/** Extra seconds before close for each additional sealed piece (Split Play), so every piece lands in time. */
+export const PIECE_SPACING_SECONDS = 2;
 
 async function chainNow(pub: PublicClient): Promise<number> {
   return Number((await pub.getBlock()).timestamp);
@@ -156,20 +158,28 @@ export async function sealAndSend(
   let r = await liveRound(pub);
   const lead = opts.leadSeconds ?? SEAL_LEAD_SECONDS;
   // too close to this round's close to make it: aim at the next one
-  if (r.endTime - (await chainNow(pub)) < lead + 2) {
+  const needed = lead + (opts.jitterSeconds ?? PIECE_SPACING_SECONDS) * (seats.length - 1) + 2;
+  if (r.endTime - (await chainNow(pub)) < needed) {
     onStatus("Waiting for the next round");
     const id = r.id;
     while ((r = await liveRound(pub)).id === id || (await chainNow(pub)) < r.startTime) await sleep(1000);
   }
-  const sendAt = r.endTime - lead;
+  // several pieces go one after another (each waits for the relay), so the first starts early enough for all of them
+  // to land: SEAL_LEAD_SECONDS before close for one, PIECE_SPACING_SECONDS more for each extra piece
+  const spacing = opts.jitterSeconds ?? PIECE_SPACING_SECONDS;
+  const sendAt = r.endTime - lead - spacing * (signed.length - 1);
   opts.onSealed?.(signed, sendAt, r.id);
-  onStatus(`Sealed. Sending ${lead}s before round ${r.id} closes`);
+  onStatus(`Sealed. Sending ${r.endTime - sendAt}s before round ${r.id} closes. Keep this tab open.`);
   const txs: Hex[] = [];
-  const jitter = opts.jitterSeconds ?? 0;
-  const order = signed.map((c, i) => ({ c, at: sendAt - Math.floor(((i + 1) / signed.length) * jitter) })).sort((a, b) => a.at - b.at);
-  for (const { c, at } of order) {
+  for (let i = 0; i < signed.length; i++) {
+    const at = sendAt + i * spacing;
     while ((await chainNow(pub)) < at) await sleep(250);
-    txs.push(await sendSeatCall(core, c));
+    if ((await chainNow(pub)) > r.endTime - 2) {
+      // too late to land in this round: the rest stays in its seats, safe, for Collect or a later play
+      onStatus(`Round ${r.id} closed before ${signed.length - i} of ${signed.length} pieces were sent; they're still in your seats.`);
+      break;
+    }
+    txs.push(await sendSeatCall(core, signed[i]));
   }
   return { roundId: r.id, txs };
 }
@@ -213,7 +223,7 @@ export async function splitPlay(
     p.onSeat?.(seat);
     seats.push(seat);
   }
-  if (p.sealed) return { seats, ...(await sealAndSend(core, seats, p.blocks, { jitterSeconds: Math.min(4, pieces.length) }, onStatus)) };
+  if (p.sealed) return { seats, ...(await sealAndSend(core, seats, p.blocks, {}, onStatus)) };
   const txs: Hex[] = [];
   for (const s of seats) {
     await waitFunded(core, s);

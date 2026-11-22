@@ -142,7 +142,12 @@ export function EloscapePage() {
     return run("Preparing your private play", async () => {
       if (split) {
         const r = await splitPlay(p.core, { amount: stake, blocks, sealed, fallbackTo, onSeat }, on);
-        setStatus(`Played as ${r.seats.length} separate seats in round ${"roundId" in r ? r.roundId : round?.id}.`);
+        const sent = r.txs.length;
+        setStatus(
+          sent === r.seats.length
+            ? `Played as ${sent} separate seats in round ${"roundId" in r ? r.roundId : round?.id}.`
+            : `${sent} of ${r.seats.length} pieces played; the rest are in Your seats, ready to collect.`,
+        );
       } else if (sealed) {
         const r = await sealedPlay(p.core, { amount: stake, blocks, fallbackTo, onSeat }, on);
         setStatus(`Sealed play landed in round ${r.roundId}.`);
