@@ -56,7 +56,6 @@ Gloam's vault. Privacy grows with use: the more people use the vault, the harder
 - Sealed Play needs the tab open until its play lands.
 - The page reads the chain from the browser through the public RPC, which sees the visitor's IP alongside the seats it
   asks about. Use a VPN or your own RPC (`VITE_RPC_URL`) if that matters to you.
-- Cloak's escrow contracts haven't had an external audit yet.
 
 ## Repo
 

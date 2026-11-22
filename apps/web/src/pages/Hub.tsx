@@ -1,5 +1,5 @@
 import { PROJECTS } from "../projects";
-import { Footer, REPO, TopBar } from "./chrome";
+import { CloakMark, Footer, REPO, SDK_DOCS, TopBar, go } from "./chrome";
 
 export function Hub() {
   return (
@@ -24,7 +24,7 @@ export function Hub() {
 
       <section className="grid-cards">
         {PROJECTS.map((p) => (
-          <a key={p.id} className="pcard" href={`#/${p.id}`}>
+          <a key={p.id} className="pcard" href={`/${p.id}`} onClick={(e) => go(e, `/${p.id}`)}>
             <div className="row">
               <div className="logo" style={{ background: p.logoBg }}>
                 <img src={p.logo} alt={`${p.name} logo`} />
@@ -42,14 +42,21 @@ export function Hub() {
             </div>
           </a>
         ))}
-        <div className="pcard ghost">
-          <div className="tag">Your protocol, next.</div>
+        <div className="pcard sdk">
+          <div className="row">
+            <div className="logo">
+              <CloakMark />
+            </div>
+            <span className="pill">Cloak SDK</span>
+          </div>
+          <div className="tag">Add private mode to your dApp.</div>
           <p className="muted small" style={{ margin: 0 }}>
-            Building on Elysium and want privacy inside your own app, done properly? Talk to Cloak and we'll integrate it with you.
+            Every page here is built on the Cloak SDK: private balances, private calls to any contract, sealed plays. On-device proofs, a relay
+            that sends for the user. A few lines in your own app.
           </p>
           <div className="foot">
-            <a href="https://x.com/cloakonelysium" target="_blank" rel="noreferrer">@cloakonelysium</a>
-            <a href="https://t.me/cloakdesk" target="_blank" rel="noreferrer">t.me/cloakdesk</a>
+            <a href={SDK_DOCS} target="_blank" rel="noreferrer">Read the SDK docs →</a>
+            <a href="https://t.me/cloakdesk" target="_blank" rel="noreferrer">Talk to Cloak</a>
           </div>
         </div>
       </section>

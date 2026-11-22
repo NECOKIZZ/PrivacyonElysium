@@ -126,3 +126,14 @@ code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
 .seen > div { border: 1px solid var(--line); border-radius: var(--r-sm); padding: 10px 12px; background: var(--bg); }
 .seen p { margin: 4px 0 0; font-size: 13.5px; }
 @media (max-width: 420px) { .seen { grid-template-columns: 1fr; } }
+.links { display: flex; flex-wrap: wrap; gap: 6px 22px; margin-top: 14px; font-size: 13.5px; color: var(--mute); }
+.links a { color: var(--soft); }
+.sheet { display: flex; gap: 8px; margin-top: 12px; align-items: center; }
+.sheet.col { flex-direction: column; align-items: stretch; }
+.sheet .input { margin-top: 0; }
+.pcard .logo, .hero .logo { border: 1px solid var(--line-strong); }
+.pcard.sdk .logo { background: var(--card-2); }
+.pcard.sdk .logo img { width: 26px; height: 26px; }
+.pcard.sdk { border-color: var(--signal-line); background: var(--signal-soft); }
+.sdkstrip { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; border: 1px solid var(--signal-line); background: var(--signal-soft); border-radius: var(--r-md); padding: 12px 16px; margin-bottom: 16px; font-size: 14px; color: var(--soft); }
+.sdkstrip b { color: var(--text); }

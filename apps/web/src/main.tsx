@@ -11,12 +11,14 @@ import { Hub } from "./pages/Hub";
 import { EloscapePage } from "./projects/eloscape/EloscapePage";
 
 function useRoute() {
-  const read = () => window.location.hash.replace(/^#\/?/, "");
+  // old links (/#/eloscape) still land on the right page, at the clean address
+  if (/^#\/./.test(window.location.hash)) window.history.replaceState(null, "", "/" + window.location.hash.replace(/^#\/?/, ""));
+  const read = () => window.location.pathname.replace(/^\/+|\/+$/g, "");
   const [route, setRoute] = useState(read);
   useEffect(() => {
     const on = () => (setRoute(read()), window.scrollTo(0, 0));
-    window.addEventListener("hashchange", on);
-    return () => window.removeEventListener("hashchange", on);
+    window.addEventListener("popstate", on);
+    return () => window.removeEventListener("popstate", on);
   }, []);
   return route;
 }

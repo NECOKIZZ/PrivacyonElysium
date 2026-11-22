@@ -46,7 +46,7 @@ export async function unlockPrivate(wallet: WalletClient): Promise<Private> {
     receive: PRIVACY.receive,
     provers: gloamProvers(),
     submit: gloamRelaySubmitter(RELAY_URL),
-    logChunk: 50_000n,
+    logChunk: 5_000_000n, // the public RPC takes the whole range: a first sync in ~3 s, not ~60
     pendingStore: (vault) => store(`pfe.notes.v1.${CHAIN.id}.${who}.${vault.toLowerCase()}`),
     records: {
       load: () => {

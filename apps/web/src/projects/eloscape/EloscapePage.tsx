@@ -4,7 +4,7 @@ import {
   ELOSCAPE, GRID, MIN_DEPLOY, SEAL_LEAD_SECONDS, collect, liveRound, owed, privateAuto, privatePlay, sealedPlay, sendSeatElo, splitPlay, splitSizes,
   type LiveRound, type Seat,
 } from "@privacy-for-elysium/eloscape";
-import { Footer, REPO, TopBar } from "../../pages/chrome";
+import { Footer, REPO, SDK_DOCS, TopBar, go } from "../../pages/chrome";
 import { connectWallet, publicClient } from "../../wallet";
 import { fallbackFor, privateHype, seatBook, sweepFallbacks, unlockPrivate, type Private } from "../../privacy";
 
@@ -58,11 +58,19 @@ export function EloscapePage() {
   const [outTo, setOutTo] = useState("");
   const [outAmt, setOutAmt] = useState("");
   const [eloTo, setEloTo] = useState("");
+  const [sheet, setSheet] = useState<"" | "shield" | "withdraw">("");
+  const [syncErr, setSyncErr] = useState("");
 
   const book = useMemo(() => (p ? seatBook(p.address) : null), [p]);
   const refresh = useCallback(async () => {
     if (!p || !book) return;
-    setBal(await privateHype(p.core));
+    try {
+      setBal(await privateHype(p.core));
+      setSyncErr("");
+    } catch (e) {
+      setSyncErr("Couldn't read your balance. Retrying…");
+      return;
+    }
     const list = book.load();
     setSeats(list);
     const out: typeof owedBy = {};
@@ -178,12 +186,12 @@ export function EloscapePage() {
             <span className="pill live" title={`Wallet ${short(p!.address)} (shown only on this device)`}>● Private mode on</span>
           ) : (
             <button className="btn primary" onClick={connect} disabled={busy}>
-              Connect & go private
+              Connect
             </button>
           )
         }
       />
-      <a className="back" href="#/">
+      <a className="back" href="/" onClick={(e) => go(e, "/")}>
         ← All projects
       </a>
       <section className="hero" style={{ paddingTop: 22 }}>
@@ -195,6 +203,16 @@ export function EloscapePage() {
             <div className="eyebrow">Eloscape · private mode</div>
             <div className="muted small">Unofficial</div>
           </div>
+        </div>
+        <div className="links">
+          <span>
+            Eloscape: <a href="https://eloscape.com" target="_blank" rel="noreferrer">eloscape.com</a> ·{" "}
+            <a href="https://x.com/eloscapeHQ" target="_blank" rel="noreferrer">@eloscapeHQ</a>
+          </span>
+          <span>
+            Cloak: <a href="https://oncloak.xyz" target="_blank" rel="noreferrer">oncloak.xyz</a> ·{" "}
+            <a href="https://oncloak.xyz/docs" target="_blank" rel="noreferrer">docs</a>
+          </span>
         </div>
         <h1 style={{ fontSize: "clamp(30px, 5vw, 46px)" }}>Stake HYPE on any block, privately.</h1>
         <p className="lede">
@@ -246,38 +264,45 @@ export function EloscapePage() {
 
         <div>
           <div className="panel">
-            <div className="row">
-              <h2 style={{ margin: 0 }}>Private balance</h2>
-              <span className="stat" data-testid="private-balance">{bal === null ? (ready ? "Syncing…" : "—") : `${fmt(bal)} HYPE`}</span>
+            <div className="muted small">Private balance</div>
+            <div className="row" style={{ marginTop: 4 }}>
+              <span className="stat" data-testid="private-balance">{!ready ? "—" : bal === null ? "Syncing…" : `${fmt(bal)} HYPE`}</span>
+              <span style={{ display: "flex", gap: 8 }}>
+                <button className={`btn ${sheet === "shield" ? "primary" : ""}`} disabled={busy} onClick={() => (ready ? setSheet(sheet === "shield" ? "" : "shield") : connect())}>
+                  Shield
+                </button>
+                <button className={`btn ${sheet === "withdraw" ? "primary" : ""}`} disabled={busy} onClick={() => (ready ? setSheet(sheet === "withdraw" ? "" : "withdraw") : connect())}>
+                  Withdraw
+                </button>
+              </span>
             </div>
-            {!ready ? (
-              <p className="muted small">Connect and sign once. Your balance sits privately in Gloam's shielded vault.</p>
-            ) : (
-              <>
-                <label className="field">
-                  Add HYPE (a public deposit from your wallet; do it ahead of time)
-                  <div className="row" style={{ marginTop: 6 }}>
-                    <input className="input" style={{ marginTop: 0 }} value={shieldAmt} onChange={(e) => setShieldAmt(e.target.value)} inputMode="decimal" />
-                    <button className="btn" disabled={busy} onClick={() => run("Adding HYPE to your private balance", () => p!.priv.shieldHype(wallet!, parseEther(shieldAmt || "0"), setStatus))}>
-                      Add
-                    </button>
-                  </div>
-                </label>
-                <details style={{ marginTop: 12 }}>
-                  <summary className="muted small" style={{ cursor: "pointer" }}>Withdraw to any address</summary>
-                  <input className="input" placeholder="0x… destination" value={outTo} onChange={(e) => setOutTo(e.target.value.trim())} />
-                  <div className="row" style={{ marginTop: 6 }}>
-                    <input className="input" style={{ marginTop: 0 }} placeholder="Amount" value={outAmt} onChange={(e) => setOutAmt(e.target.value)} inputMode="decimal" />
-                    <button
-                      className="btn"
-                      disabled={busy || !isAddress(outTo)}
-                      onClick={() => run("Withdrawing", () => p!.priv.unshieldHype(outTo as Address, parseEther(outAmt || "0"), setStatus))}
-                    >
-                      Withdraw
-                    </button>
-                  </div>
-                </details>
-              </>
+            {syncErr && <p className="small err">{syncErr}</p>}
+            {ready && sheet === "shield" && (
+              <div className="sheet">
+                <input className="input" placeholder="HYPE to shield" value={shieldAmt} onChange={(e) => setShieldAmt(e.target.value)} inputMode="decimal" />
+                <button
+                  className="btn primary"
+                  disabled={busy || !shieldAmt}
+                  onClick={() => run("Shielding", async () => (await p!.priv.shieldHype(wallet!, parseEther(shieldAmt || "0"), setStatus), setSheet(""), setStatus("Shielded.")))}
+                >
+                  Shield
+                </button>
+              </div>
+            )}
+            {ready && sheet === "withdraw" && (
+              <div className="sheet col">
+                <input className="input" placeholder="0x… destination address" value={outTo} onChange={(e) => setOutTo(e.target.value.trim())} />
+                <div className="sheet" style={{ marginTop: 0 }}>
+                  <input className="input" placeholder="HYPE to withdraw" value={outAmt} onChange={(e) => setOutAmt(e.target.value)} inputMode="decimal" />
+                  <button
+                    className="btn primary"
+                    disabled={busy || !isAddress(outTo) || !outAmt}
+                    onClick={() => run("Withdrawing", async () => (await p!.priv.unshieldHype(outTo as Address, parseEther(outAmt || "0"), setStatus), setSheet(""), setStatus("Withdrawn.")))}
+                  >
+                    Withdraw
+                  </button>
+                </div>
+              </div>
             )}
           </div>
 
@@ -344,7 +369,7 @@ export function EloscapePage() {
                 </button>
               ) : (
                 <button className="btn primary" style={{ width: "100%" }} onClick={connect} disabled={busy}>
-                  Connect & go private
+                  Connect
                 </button>
               )}
             </div>
@@ -353,6 +378,14 @@ export function EloscapePage() {
             </div>
           </div>
         </div>
+      </div>
+      <div className="sdkstrip">
+        <span>
+          <b>Built on the Cloak SDK.</b> This whole page is a thin layer on it. Bring private mode to your own Elysium dApp.
+        </span>
+        <a className="btn small" href={SDK_DOCS} target="_blank" rel="noreferrer">
+          SDK docs →
+        </a>
       </div>
       <div className="panel" style={{ marginBottom: 40 }}>
             <h2>Your seats</h2>

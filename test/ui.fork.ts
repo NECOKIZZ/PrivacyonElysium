@@ -135,20 +135,21 @@ const balance = async () => {
 try {
   await page.goto(`http://127.0.0.1:${SITE}/#/`);
   check(await page.getByText("Privacy on Elysium").first().isVisible(), "hub page renders");
-  await page.locator('a.pcard[href="#/eloscape"]').click();
+  await page.locator('a.pcard[href="/eloscape"]').click();
   await page.getByText("Not run by Eloscape.").waitFor();
   check(true, "Eloscape card opens the Eloscape page, with the notice");
   await page.locator(".stat").first().filter({ hasText: "#" }).waitFor({ timeout: 30_000 });
   check(true, "live round from the forked contract");
 
   log("Connect & go private");
-  await page.getByRole("button", { name: "Connect & go private" }).first().click();
+  await page.getByRole("button", { name: "Connect", exact: true }).first().click();
   await page.getByText("Private mode on").waitFor({ timeout: 600_000 });
   check(true, "private account unlocked with one signature");
 
-  log("Add 2 HYPE privately");
-  await page.locator("label.field input").first().fill("2");
-  await page.getByRole("button", { name: "Add", exact: true }).click();
+  log("Shield 2 HYPE");
+  await page.getByRole("button", { name: "Shield", exact: true }).first().click();
+  await page.getByPlaceholder("HYPE to shield").fill("2");
+  await page.locator(".sheet").getByRole("button", { name: "Shield", exact: true }).click();
   for (let i = 0; i < 600 && (await balance()) < 2; i++) await sleep(1000);
   check((await balance()) >= 2, `private balance shows ${await balance()} HYPE`);
   await page.screenshot({ path: `${OUT}/ui-1-funded.png`, fullPage: true });
