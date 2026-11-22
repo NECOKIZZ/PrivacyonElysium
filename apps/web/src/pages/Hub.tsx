@@ -1,23 +1,25 @@
 import { PROJECTS } from "../projects";
-import { Footer, TopBar } from "./chrome";
+import { Footer, REPO, TopBar } from "./chrome";
 
 export function Hub() {
   return (
     <div className="wrap">
       <TopBar />
       <section className="hero">
-        <div className="eyebrow">An initiative by Cloak</div>
         <h1>Privacy on Elysium</h1>
         <p className="lede">
-          Every move on Elysium is public: your wallet, your balance, your strategy. These pages let you use Elysium's apps from a private
-          balance instead, so the app sees a fresh address and never your wallet.
+          Use Elysium dApps privately, from your private balance. Your HYPE sits in Gloam's shielded vault, and the dApp sees a fresh
+          address, never your wallet.
         </p>
       </section>
 
       <div className="notice">
-        <b>Independent and unofficial.</b> This site is built and run by Cloak, not by any project listed here. Their names and logos only
-        show whose public contracts a page talks to; none of them runs, reviews or endorses it. Your plays go to their live contracts,
-        under their rules and fees.
+        <b>Independent and unofficial.</b> Not run or endorsed by the projects listed. Their logos only show which contracts a page talks to.
+        Verify the code before you use it:{" "}
+        <a href={REPO} target="_blank" rel="noreferrer">
+          github.com/NECOKIZZ/PrivacyonElysium
+        </a>
+        .
       </div>
 
       <section className="grid-cards">
@@ -52,20 +54,6 @@ export function Hub() {
         </div>
       </section>
 
-      <section className="how">
-        <div>
-          <h3>1 · Go private</h3>
-          <p>Move HYPE into Gloam's shielded vault once. Inside it, balances are notes nobody can tie to you.</p>
-        </div>
-        <div>
-          <h3>2 · Play from a fresh seat</h3>
-          <p>Each play gets a one-time address funded by a zero-knowledge proof. The app sees that address, never your wallet.</p>
-        </div>
-        <div>
-          <h3>3 · Come back private</h3>
-          <p>Winnings return to your private balance as new notes. Cloak's relay sends every step, so your wallet never signs on chain.</p>
-        </div>
-      </section>
       <Footer />
     </div>
   );

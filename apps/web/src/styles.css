@@ -122,3 +122,7 @@ label.field { display: block; margin-top: 14px; font-size: 13px; color: var(--mu
 .seat:first-child { border-top: 0; }
 code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
 .back { text-decoration: none; color: var(--mute); font-size: 14px; }
+.seen { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+.seen > div { border: 1px solid var(--line); border-radius: var(--r-sm); padding: 10px 12px; background: var(--bg); }
+.seen p { margin: 4px 0 0; font-size: 13.5px; }
+@media (max-width: 420px) { .seen { grid-template-columns: 1fr; } }

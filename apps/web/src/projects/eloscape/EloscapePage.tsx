@@ -4,7 +4,7 @@ import {
   ELOSCAPE, GRID, MIN_DEPLOY, SEAL_LEAD_SECONDS, collect, liveRound, owed, privateAuto, privatePlay, sealedPlay, sendSeatElo, splitPlay, splitSizes,
   type LiveRound, type Seat,
 } from "@privacy-for-elysium/eloscape";
-import { Footer, TopBar } from "../../pages/chrome";
+import { Footer, REPO, TopBar } from "../../pages/chrome";
 import { connectWallet, publicClient } from "../../wallet";
 import { fallbackFor, privateHype, seatBook, sweepFallbacks, unlockPrivate, type Private } from "../../privacy";
 
@@ -159,6 +159,14 @@ export function EloscapePage() {
       setStatus("ELO sent.");
     });
 
+  const lastSecs = `in the last ${SEAL_LEAD_SECONDS}s of the round`;
+  const view =
+    mode === "auto"
+      ? { seen: "A fresh address running Auto: its blocks, amount per block and rounds.", hidden: "Your wallet." }
+      : {
+          seen: `${split ? "Separate fresh addresses, each a standard piece," : "A fresh address"} on your blocks${sealed ? `, only ${lastSecs}` : ""}${split ? "." : ", with its amount."}`,
+          hidden: ["Your wallet", sealed && `your blocks until ${SEAL_LEAD_SECONDS}s before close`, split && "your total amount"].filter(Boolean).join(", ") + ".",
+        };
   const ready = !!p;
   const canPlay = ready && !busy && blocks.length > 0 && stake > 0n && (mode === "once" ? (bal ?? 0n) >= stake : (bal ?? 0n) >= stake);
 
@@ -185,20 +193,20 @@ export function EloscapePage() {
           </div>
           <div>
             <div className="eyebrow">Eloscape · private mode</div>
-            <div className="muted small">Unofficial · by Cloak</div>
+            <div className="muted small">Unofficial</div>
           </div>
         </div>
-        <h1 style={{ fontSize: "clamp(30px, 5vw, 46px)" }}>Stay HYPE on any block, privately.</h1>
+        <h1 style={{ fontSize: "clamp(30px, 5vw, 46px)" }}>Stake HYPE on any block, privately.</h1>
         <p className="lede">
-          Mine Eloscape's 5×5 grid from a private balance. Eloscape sees a fresh seat play, never your wallet. Seal your block until the last
-          seconds, and split your stake so its size says nothing.
+          Mine Eloscape's grid from your private balance. Eloscape sees a fresh address, never your wallet.
         </p>
       </section>
 
       <div className="notice">
-        <b>Not run by Eloscape.</b> This page is an independent initiative by Cloak to show privacy on Elysium. Eloscape doesn't operate, review
-        or endorse it. Plays go to Eloscape's own live contract (<a href={EXPLORER + ELOSCAPE.game} target="_blank" rel="noreferrer">{short(ELOSCAPE.game)}</a>)
-        under its rules and fees, plus Gloam's 0.5% when a note leaves the vault. Cloak's escrow isn't externally audited yet.
+        <b>Not run by Eloscape.</b> Independent and unofficial. Plays go to Eloscape's own contract (
+        <a href={EXPLORER + ELOSCAPE.game} target="_blank" rel="noreferrer">{short(ELOSCAPE.game)}</a>) under its rules and fees. Your HYPE sits in
+        Gloam's shielded vault; Gloam keeps 0.5% when it leaves. Verify the code:{" "}
+        <a href={REPO} target="_blank" rel="noreferrer">GitHub</a>.
       </div>
 
       <div className="layout">
@@ -230,7 +238,7 @@ export function EloscapePage() {
               ))}
             </div>
             <p className="muted small" style={{ marginBottom: 0 }}>
-              Live from Eloscape's contract. Pick your blocks; with Sealed on, nobody sees them until {SEAL_LEAD_SECONDS}s before close.
+              Live from Eloscape's contract. Pick your blocks.
             </p>
           </div>
 
@@ -243,11 +251,11 @@ export function EloscapePage() {
               <span className="stat" data-testid="private-balance">{bal === null ? (ready ? "Syncing…" : "—") : `${fmt(bal)} HYPE`}</span>
             </div>
             {!ready ? (
-              <p className="muted small">Connect and sign once to open your private account. The same wallet always restores it.</p>
+              <p className="muted small">Connect and sign once. Your balance sits privately in Gloam's shielded vault.</p>
             ) : (
               <>
                 <label className="field">
-                  Add HYPE privately (the one public step: do it ahead of time)
+                  Add HYPE (a public deposit from your wallet; do it ahead of time)
                   <div className="row" style={{ marginTop: 6 }}>
                     <input className="input" style={{ marginTop: 0 }} value={shieldAmt} onChange={(e) => setShieldAmt(e.target.value)} inputMode="decimal" />
                     <button className="btn" disabled={busy} onClick={() => run("Adding HYPE to your private balance", () => p!.priv.shieldHype(wallet!, parseEther(shieldAmt || "0"), setStatus))}>
@@ -301,7 +309,7 @@ export function EloscapePage() {
                   <input type="checkbox" checked={sealed} onChange={(e) => setSealed(e.target.checked)} />
                   <span>
                     <b>Seal my blocks</b>
-                    <em>Signed now, kept on this device, sent {SEAL_LEAD_SECONDS}s before the round closes. Keep this tab open until it lands.</em>
+                    <em>Sent {SEAL_LEAD_SECONDS}s before close. Keep this tab open.</em>
                   </span>
                 </label>
                 <label className="toggle">
@@ -309,17 +317,26 @@ export function EloscapePage() {
                   <span>
                     <b>Also hide my amount</b>
                     <em>
-                      Plays as standard pieces, each from its own seat
-                      {pieces && pieces.pieces.length ? `: ${pieces.pieces.map((x) => formatEther(x)).join(" + ")}` : ""}
-                      {pieces && pieces.left > 0n ? ` (${formatEther(pieces.left)} stays private)` : ""}.
+                      Plays as {pieces && pieces.pieces.length ? pieces.pieces.map((x) => formatEther(x)).join(" + ") : "standard pieces"}, each from its own address
+                      {pieces && pieces.left > 0n ? ` (${formatEther(pieces.left)} stays in your balance)` : ""}.
                     </em>
                   </span>
                 </label>
               </>
             )}
             <p className="muted small" style={{ marginBottom: 0 }}>
-              Min {formatEther(MIN_DEPLOY)} HYPE per block. Gloam keeps 0.5% when a note leaves the vault; Eloscape's own fees apply as for anyone.
+              Min {formatEther(MIN_DEPLOY)} HYPE per block.
             </p>
+            <div className="seen">
+              <div>
+                <span className="muted small">Others see</span>
+                <p>{view.seen}</p>
+              </div>
+              <div>
+                <span className="muted small">Hidden</span>
+                <p>{view.hidden}</p>
+              </div>
+            </div>
             <div style={{ marginTop: 14 }}>
               {ready ? (
                 <button className="btn primary" style={{ width: "100%" }} disabled={!canPlay} onClick={play}>
@@ -340,7 +357,7 @@ export function EloscapePage() {
       <div className="panel" style={{ marginBottom: 40 }}>
             <h2>Your seats</h2>
             <p className="muted small" style={{ marginTop: 0 }}>
-              Each seat is a one-time address that played for you. Collect sends its HYPE back into your private balance.
+              One-time addresses that played for you. Collect returns their HYPE to your private balance.
             </p>
             {!seats.filter((s) => !s.done).length && <p className="muted small">No open seats yet.</p>}
             {seats
