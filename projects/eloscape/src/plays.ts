@@ -46,6 +46,25 @@ export function playValue(arrived: bigint, blocks: number[]): bigint {
   return v;
 }
 
+/**
+ * Wait until a round is open with at least `minLeft` seconds to go (by the chain's clock). Eloscape refuses deploys
+ * between a round's close and the next round's start, so a play sent then would revert (the HYPE stays in the seat).
+ */
+export async function waitOpenRound(pub: PublicClient, minLeft: number, onStatus: Status = () => {}) {
+  for (let said = false; ; ) {
+    const r = await liveRound(pub);
+    const now = Number((await pub.getBlock()).timestamp);
+    if (now >= r.startTime && r.endTime - now >= minLeft) return r;
+    if (!said) (onStatus("Waiting for the next round to open"), (said = true));
+    await sleep(1000);
+  }
+}
+
+/** Seconds a plain play needs left in the round: room for the relay to send it. */
+export const PLAY_MIN_LEFT = 5;
+/** Eloscape's own app stops Auto setups 20 s before close; this does the same. */
+export const AUTO_MIN_LEFT = 20;
+
 async function waitFunded(core: GloamCore, seat: Seat): Promise<void> {
   const pub = core.config.publicClient as PublicClient;
   for (let i = 0; i < 120; i++) {
@@ -62,6 +81,7 @@ export async function privatePlay(core: GloamCore, p: { amount: bigint; blocks: 
   const seat = await openSeat(core, await seatParams(p, p.amount), onStatus);
   p.onSeat?.(seat);
   await waitFunded(core, seat);
+  await waitOpenRound(core.config.publicClient as PublicClient, PLAY_MIN_LEFT, onStatus);
   onStatus("Playing from the seat");
   const tx = await seatCall(core, seat, { target: ELOSCAPE.game, value: playValue(seat.arrived, p.blocks), data: deployCall(p.blocks) });
   return { seat, tx };
@@ -79,6 +99,7 @@ export async function privateAuto(core: GloamCore, p: { amount: bigint; blocks: 
   const perRound = p.perBlock * BigInt(p.blocks.length);
   const rounds = seat.arrived / perRound;
   if (rounds < 1n) throw new Error("The amount doesn't cover one round at this size.");
+  await waitOpenRound(core.config.publicClient as PublicClient, AUTO_MIN_LEFT, onStatus);
   onStatus(`Starting Auto for ${rounds} rounds`);
   const tx = await seatCall(core, seat, { target: ELOSCAPE.game, value: rounds * perRound, data: autoFixedCall(p.blocks, p.perBlock) });
   return { seat, tx, rounds };
@@ -196,6 +217,7 @@ export async function splitPlay(
   const txs: Hex[] = [];
   for (const s of seats) {
     await waitFunded(core, s);
+    await waitOpenRound(core.config.publicClient as PublicClient, PLAY_MIN_LEFT, onStatus);
     txs.push(await seatCall(core, s, { target: ELOSCAPE.game, value: playValue(s.arrived, p.blocks), data: deployCall(p.blocks) }));
     await sleep(1500 + Math.floor(Math.random() * 2500));
   }
