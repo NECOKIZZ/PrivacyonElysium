@@ -11,7 +11,7 @@
 import type { Address, Hex, PublicClient } from "viem";
 import type { GloamCore } from "@cloakely/sdk";
 import { ELOSCAPE } from "./config.js";
-import { GRID, MIN_DEPLOY, autoFixedCall, claimAllCall, deployCall, liveRound, owed, stopAutoCall } from "./game.js";
+import { GRID, MIN_DEPLOY, autoFixedCall, autoRandomCall, claimAllCall, deployCall, liveRound, owed, stopAutoCall } from "./game.js";
 import { ELO_MIN_SWAP, swapHeldElo } from "./elo.js";
 import { openSeat, returnSeat, seatCall, sendSeatCall, signSeatCall, type ReceiveRoute, type Seat, type SignedSeatCall, type Status } from "./seat.js";
 
@@ -122,17 +122,22 @@ export async function privatePlay(core: GloamCore, p: { amount: bigint; blocks: 
  * Private Auto: one note funds an Auto position on a fresh seat, which plays `perBlock` on each of `blocks` every
  * round until its balance runs out (Eloscape's own Auto, unchanged). Stop and collect with collect().
  */
-export async function privateAuto(core: GloamCore, p: { amount: bigint; blocks: number[]; perBlock: bigint } & SeatOptions, onStatus: Status = () => {}) {
+export async function privateAuto(
+  core: GloamCore,
+  p: { amount: bigint; blocks: number[]; perBlock: bigint; random?: { width: number } } & SeatOptions,
+  onStatus: Status = () => {},
+) {
   if (p.perBlock < MIN_DEPLOY) throw new Error("Too little per block: Eloscape's minimum is 0.0000025 HYPE per block.");
   const seat = await openSeat(core, await seatParams(p, p.amount), onStatus);
   p.onSeat?.(seat);
   await waitFunded(core, seat);
-  const perRound = p.perBlock * BigInt(p.blocks.length);
+  const nBlocks = p.random ? p.random.width : p.blocks.length;
+  const perRound = p.perBlock * BigInt(nBlocks);
   const rounds = seat.arrived / perRound;
   if (rounds < 1n) throw new Error("The amount doesn't cover one round at this size.");
   await waitOpenRound(core.config.publicClient as PublicClient, AUTO_MIN_LEFT, onStatus);
   onStatus(`Starting Auto for ${rounds} rounds`);
-  const tx = await seatCall(core, seat, { target: ELOSCAPE.game, value: rounds * perRound, data: autoFixedCall(p.blocks, p.perBlock) });
+  const tx = await seatCall(core, seat, { target: ELOSCAPE.game, value: rounds * perRound, data: p.random ? autoRandomCall(Math.floor(Math.random() * GRID), p.random.width, p.perBlock) : autoFixedCall(p.blocks, p.perBlock) });
   return { seat, tx, rounds };
 }
 

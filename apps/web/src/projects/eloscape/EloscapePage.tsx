@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatEther, isAddress, parseEther, type Address, type WalletClient } from "viem";
 import {
-  ELOSCAPE, GRID, MIN_DEPLOY, SEAL_LEAD_SECONDS, ELO_MIN_SWAP, GLOAM_EXIT_FEE_BPS, collect, grossFor, liveRound, owed, privateAuto, privatePlay, sealedPlay, sendSeatElo, splitPlay, splitSizes,
+  ELOSCAPE, GRID, MIN_DEPLOY, SEAL_LEAD_SECONDS, ELO_MIN_SWAP, GLOAM_EXIT_FEE_BPS, RANDOM_WIDTHS, STRATEGIES, collect, grossFor, randomBlocks, strategyBlocks, strategyOf, liveRound, owed, privateAuto, privatePlay, sealedPlay, sendSeatElo, splitPlay, splitSizes,
   type LiveRound, type Seat,
 } from "@privacy-for-elysium/eloscape";
 import { Footer, REPO, SDK_DOCS, TopBar, go } from "../../pages/chrome";
@@ -16,6 +16,19 @@ const fmt = (v: bigint, d = 4) => {
 };
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 type BookSeat = Seat & { label: string; done?: boolean };
+
+const STRAT_LABEL: Record<string, string> = { all: "All", cross: "Cross", odd: "Odd", even: "Even", plus: "Plus", custom: "Custom" };
+
+/** A 5x5 thumbnail of a strategy, as in Eloscape's menu. */
+function MiniGrid({ blocks }: { blocks: number[] }) {
+  return (
+    <span className="mini-grid" aria-hidden>
+      {Array.from({ length: 25 }, (_, i) => (
+        <i key={i} className={blocks.includes(i) ? "on" : ""} />
+      ))}
+    </span>
+  );
+}
 
 /** Small per-device cache, so the page shows the last known values at once instead of an empty "loading" state. */
 const cache = {
@@ -113,6 +126,9 @@ export function EloscapePage() {
   const [mode, setMode] = useState<"once" | "auto">("once");
   const [perBlock, setPerBlock] = useState("0.01");
   const [rounds, setRounds] = useState(10);
+  const [autoPick, setAutoPick] = useState<"fixed" | "random">("fixed");
+  const [width, setWidth] = useState<number>(5);
+  const [stratOpen, setStratOpen] = useState(false);
   const [sealed, setSealed] = useState(true);
   const [split, setSplit] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -299,7 +315,8 @@ export function EloscapePage() {
   try {
     per = parseEther(perBlock || "0");
   } catch {}
-  const nBlocks = BigInt(blocks.length);
+  const randomAuto = mode === "auto" && autoPick === "random";
+  const nBlocks = BigInt(randomAuto ? width : blocks.length);
   const perRound = per * nBlocks;
   const net = mode === "auto" ? perRound * BigInt(Math.max(1, rounds)) : perRound; // what Eloscape receives
   const pieces = mode === "once" && split ? splitSizes(net) : null;
@@ -310,13 +327,13 @@ export function EloscapePage() {
 
   const play = () => {
     if (!p || !wallet) return;
-    if (!blocks.length) return setError("Pick at least one block.");
+    if (!blocks.length && !randomAuto) return setError("Pick at least one block.");
     const fallbackTo = fallbackFor(p.priv, p.address); // a fresh receive address per seat: never the wallet
     const on = (s: string) => setStatus(s);
     if (mode === "auto") {
       return run("Starting Private Auto", async () => {
-        const label = `Auto · ${blockWord(blocks)} · ${perBlock}/block · ${rounds} rounds`;
-        const r = await privateAuto(p.core, { amount: stake, blocks, perBlock: per, fallbackTo, onSeat: (s) => remember([s], label) }, on);
+        const label = `Auto · ${randomAuto ? `${width} random block${width > 1 ? "s" : ""} each round` : blockWord(blocks)} · ${perBlock}/block · ${rounds} rounds`;
+        const r = await privateAuto(p.core, { amount: stake, blocks, perBlock: per, random: randomAuto ? { width } : undefined, fallbackTo, onSeat: (s) => remember([s], label) }, on);
         setStatus(`Auto is running from seat ${short(r.seat.account)}.`);
       });
     }
@@ -365,7 +382,7 @@ export function EloscapePage() {
     { hype: 0n, elo: 0n },
   );
   const ready = !!p;
-  const canPlay = ready && !busy && blocks.length > 0 && stake > 0n && !tooSmall && (bal ?? 0n) >= stake;
+  const canPlay = ready && !busy && (blocks.length > 0 || randomAuto) && stake > 0n && !tooSmall && (bal ?? 0n) >= stake;
 
   return (
     <div className="wrap">
@@ -435,14 +452,35 @@ export function EloscapePage() {
               <i style={{ width: `${progress}%` }} />
             </div>
             <div className="board-actions">
-              <span className="muted small">{blocks.length ? `${blocks.length} selected` : "Select blocks"}</span>
-              <span>
-                <button onClick={() => setBlocks([Math.floor(Math.random() * GRID)])}>Random</button>
-                <button onClick={() => setBlocks(Array.from({ length: GRID }, (_, i) => i))}>All</button>
-                <button onClick={() => setBlocks([])} disabled={!blocks.length}>Clear</button>
+              <span className="muted small">
+                {randomAuto ? `Eloscape picks ${width} block${width > 1 ? "s" : ""} each round` : blocks.length ? `${blocks.length} selected · ${STRAT_LABEL[strategyOf(blocks) ?? "custom"]}` : "Select blocks"}
+              </span>
+              <span className="strat-wrap">
+                <button onClick={() => setStratOpen(!stratOpen)} aria-expanded={stratOpen} disabled={randomAuto}>
+                  Strategies ▾
+                </button>
+                <button onClick={() => setBlocks(randomBlocks(blocks.length || 1))} disabled={randomAuto} title="Pick random blocks (same number as selected)">
+                  Random
+                </button>
+                <button onClick={() => setBlocks([])} disabled={!blocks.length || randomAuto}>
+                  Clear
+                </button>
+                {stratOpen && (
+                  <>
+                    <div className="menu-scrim" onClick={() => setStratOpen(false)} />
+                    <div className="menu strat-menu">
+                      {STRATEGIES.map((k) => (
+                        <button key={k} className={strategyOf(blocks) === k ? "on" : ""} onClick={() => (setBlocks(strategyBlocks(k)), setStratOpen(false))}>
+                          <MiniGrid blocks={strategyBlocks(k)} />
+                          {STRAT_LABEL[k]}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
               </span>
             </div>
-            <div className="board">
+            <div className={`board ${randomAuto ? "dim" : ""}`}>
               {Array.from({ length: GRID }, (_, b) => (
                 <button key={b} className={`cell ${blocks.includes(b) ? "on" : ""}`} onClick={() => toggleBlock(b)} aria-pressed={blocks.includes(b)}>
                   <span className="id">{b + 1}</span>
@@ -543,6 +581,27 @@ export function EloscapePage() {
 
             {mode === "auto" && (
               <div className="stepper">
+                <span>Blocks</span>
+                <span className="seg small">
+                  <button className={autoPick === "fixed" ? "on" : ""} onClick={() => setAutoPick("fixed")}>My selection</button>
+                  <button className={autoPick === "random" ? "on" : ""} onClick={() => setAutoPick("random")}>Random each round</button>
+                </span>
+              </div>
+            )}
+            {randomAuto && (
+              <div className="stepper">
+                <span>How many</span>
+                <span className="chips">
+                  {RANDOM_WIDTHS.map((w) => (
+                    <button key={w} className={width === w ? "on" : ""} onClick={() => setWidth(w)}>
+                      {w}
+                    </button>
+                  ))}
+                </span>
+              </div>
+            )}
+            {mode === "auto" && (
+              <div className="stepper">
                 <span>Rounds</span>
                 <span className="ctl">
                   <button onClick={() => setRounds(Math.max(1, rounds - 1))} aria-label="Fewer rounds">−</button>
@@ -576,7 +635,7 @@ export function EloscapePage() {
             )}
 
             <div className="summary">
-              <div className="kv"><span>Blocks</span><span>{blocks.length || "—"}</span></div>
+              <div className="kv"><span>Blocks</span><span>{randomAuto ? `${width}, random each round` : blocks.length || "—"}</span></div>
               <div className="kv"><span>Total per round</span><span>{perRound > 0n ? `${fmt(perRound)} HYPE` : "—"}</span></div>
               {mode === "auto" && <div className="kv"><span>Rounds</span><span>{rounds}</span></div>}
               <div className="kv"><span>Gloam exit fee (0.5%)</span><span>{stake > 0n ? `${fmt(exitFee, 6)} HYPE` : "—"}</span></div>
@@ -587,7 +646,7 @@ export function EloscapePage() {
               <button className="btn primary big" disabled={!canPlay} onClick={play}>
                 {busy
                   ? "Working…"
-                  : !blocks.length
+                  : !blocks.length && !randomAuto
                     ? "Select blocks"
                     : tooSmall
                       ? `Min ${formatEther(MIN_DEPLOY)} HYPE per block`
@@ -686,7 +745,7 @@ export function EloscapePage() {
         <ol>
           <li><b>Connect</b> and sign once. It opens your private account; no transaction, no gas.</li>
           <li><b>Shield</b> HYPE into your private balance. This is the one public step, so do it ahead of time.</li>
-          <li><b>Pick blocks</b> on the grid (or Random / All), set the amount per block (and rounds, for Auto), and choose your privacy: <i>Seal</i> hides your blocks until the last seconds, <i>Hide my amount</i> splits your stake into standard pieces.</li>
+          <li><b>Pick blocks</b> on the grid or with Eloscape's strategies (All, Cross, Odd, Even, Plus, Random). For Auto you can also let Eloscape pick 1, 3, 5, 9 or 13 random blocks each round. Set the amount per block (and rounds, for Auto), and choose your privacy: <i>Seal</i> hides your blocks until the last seconds, <i>Hide my amount</i> splits your stake into standard pieces.</li>
           <li><b>Play.</b> A fresh address plays for you; your wallet never appears. Too close to the end of a round? It goes into the next one.</li>
           <li><b>Collect</b> after the round: winnings go back into your private balance.</li>
           <li>

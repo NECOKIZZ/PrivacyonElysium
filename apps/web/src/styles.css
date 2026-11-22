@@ -202,3 +202,14 @@ code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
 .swap-box input { width: 100%; }
 .layout > div { min-width: 0; }
 .seen-below { display: grid; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; }
+.strat-wrap { position: relative; display: inline-flex; gap: 2px; }
+.strat-menu { top: calc(100% + 4px); min-width: 170px; }
+.strat-menu button { display: flex; align-items: center; gap: 10px; }
+.strat-menu button.on { background: var(--signal-soft); color: var(--signal); }
+.mini-grid { display: grid; grid-template-columns: repeat(5, 4px); gap: 1.5px; }
+.mini-grid i { width: 4px; height: 4px; border-radius: 1px; background: var(--line-strong); }
+.mini-grid i.on { background: var(--signal); }
+.board.dim { opacity: 0.45; pointer-events: none; }
+.chips { display: inline-flex; gap: 6px; }
+.chips button { min-width: 34px; height: 30px; border-radius: 999px; border: 1px solid var(--line-strong); background: transparent; color: var(--soft); font: 500 14px var(--font-num); cursor: pointer; }
+.chips button.on { background: var(--text); color: var(--bg); border-color: var(--text); }

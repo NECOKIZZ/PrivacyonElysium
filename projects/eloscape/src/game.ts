@@ -33,6 +33,47 @@ export const INTERMISSION_SECONDS = 12;
 export const deployCall = (blocks: number[]): Hex => encodeFunctionData({ abi: GAME_ABI, functionName: "deploy", args: [blocks] });
 export const autoFixedCall = (blocks: number[], perBlock: bigint): Hex =>
   encodeFunctionData({ abi: GAME_ABI, functionName: "setConfigFixed", args: [maskOf(blocks), perBlock] });
+export const autoRandomCall = (phase: number, width: number, perBlock: bigint): Hex =>
+  encodeFunctionData({ abi: GAME_ABI, functionName: "setConfigRandom", args: [phase, width, perBlock] });
+
+/** Widths Eloscape accepts for random Auto: a window of this many blocks, moved by the round's seed every round. */
+export const RANDOM_WIDTHS = [1, 3, 5, 9, 13] as const;
+
+/** Eloscape's own block strategies (its app's presets), on the 0-24 grid read row by row. */
+export const STRATEGIES = ["all", "cross", "odd", "even", "plus"] as const;
+export type Strategy = (typeof STRATEGIES)[number];
+export function strategyBlocks(s: Strategy): number[] {
+  const out: number[] = [];
+  for (let n = 0; n < GRID; n++) {
+    const row = Math.floor(n / 5);
+    const col = n % 5;
+    const on =
+      s === "all" ||
+      (s === "cross" && (row === col || row + col === 4)) ||
+      (s === "odd" && n % 2 === 0) || // blocks 1, 3, 5, … as numbered on the grid
+      (s === "even" && n % 2 === 1) ||
+      (s === "plus" && (row === 2 || col === 2));
+    if (on) out.push(n);
+  }
+  return out;
+}
+/** Which strategy a selection is, or "custom" (or null when empty), as Eloscape's app labels it. */
+export function strategyOf(blocks: number[]): Strategy | "custom" | null {
+  if (!blocks.length) return null;
+  const key = [...blocks].sort((a, b) => a - b).join(",");
+  for (const s of STRATEGIES) if (strategyBlocks(s).join(",") === key) return s;
+  return "custom";
+}
+/** `count` random blocks. */
+export function randomBlocks(count: number): number[] {
+  const all = Array.from({ length: GRID }, (_, i) => i);
+  for (let i = all.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [all[i], all[j]] = [all[j], all[i]];
+  }
+  return all.slice(0, Math.max(1, Math.min(GRID, count))).sort((a, b) => a - b);
+}
+
 export const stopAutoCall = (): Hex => encodeFunctionData({ abi: GAME_ABI, functionName: "stopConfig" });
 export const claimEthCall = (): Hex => encodeFunctionData({ abi: GAME_ABI, functionName: "claimETH" });
 /** HYPE winnings and refunds, and (withElo) ELO, in one call; it also checkpoints the seat's last round. */
