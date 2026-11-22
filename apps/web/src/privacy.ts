@@ -109,6 +109,16 @@ export function fallbackFor(priv: GloamPrivate, wallet: string): () => Promise<`
   };
 }
 
+/** A fresh receive address (from the same 1000+ range) and its sweep: the way back for a seat the escrow has closed. */
+export function receiveRoute(priv: GloamPrivate, wallet: string) {
+  const next = fallbackFor(priv, wallet);
+  return async () => {
+    const address = await next();
+    const n = Number(store(`pfe.fallback.v1.${CHAIN.id}.${wallet.toLowerCase()}`).load()) - 1;
+    return { address, collect: () => priv.collectReceived(n) };
+  };
+}
+
 /** Sweep the seat fallbacks (receive addresses 1000..next) back into the private balance. */
 export async function sweepFallbacks(priv: GloamPrivate, wallet: string): Promise<number> {
   const next = Number(store(`pfe.fallback.v1.${CHAIN.id}.${wallet.toLowerCase()}`).load() ?? "1000");

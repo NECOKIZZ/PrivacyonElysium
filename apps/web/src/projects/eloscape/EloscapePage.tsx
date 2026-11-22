@@ -7,7 +7,7 @@ import {
 import { Footer, REPO, SDK_DOCS, TopBar, go } from "../../pages/chrome";
 import { connectWallet, publicClient, visible } from "../../wallet";
 import { GAME_ABI } from "@privacy-for-elysium/eloscape";
-import { fallbackFor, privateHype, seatBook, sweepFallbacks, unlockPrivate, type Private } from "../../privacy";
+import { fallbackFor, privateHype, receiveRoute, seatBook, sweepFallbacks, unlockPrivate, type Private } from "../../privacy";
 
 const EXPLORER = "https://elysium.kinetiq.xyz/explorer/address/";
 const fmt = (v: bigint, d = 4) => {
@@ -229,7 +229,7 @@ export function EloscapePage() {
       const due = seats.filter((s) => !s.done && owedBy[s.account] && (owedBy[s.account].hype + owedBy[s.account].held > 0n || owedBy[s.account].autoActive));
       for (let i = 0; i < due.length; i++) {
         setStatus(`Collecting seat ${i + 1} of ${due.length}`);
-        await collect(p!.core, due[i]);
+        await collect(p!.core, due[i], setStatus, receiveRoute(p!.priv, p!.address));
         if (book) book.save(book.load().map((x) => (x.account === due[i].account ? { ...x, done: (owedBy[x.account]?.elo ?? 0n) === 0n } : x)));
       }
       setStatus(due.length ? `Collected ${due.length} seat${due.length > 1 ? "s" : ""} into your private balance.` : "Nothing to collect.");
@@ -280,14 +280,14 @@ export function EloscapePage() {
 
   const collectSeat = (s: BookSeat) =>
     run("Bringing it back to your private balance", async () => {
-      await collect(p!.core, s, setStatus);
+      await collect(p!.core, s, setStatus, receiveRoute(p!.priv, p!.address));
       if (book) book.save(book.load().map((x) => (x.account === s.account ? { ...x, done: (owedBy[s.account]?.elo ?? 0n) === 0n } : x)));
       setStatus("Back in your private balance.");
     });
 
   const eloSwap = (s: BookSeat) =>
     run("Swapping ELO to HYPE", async () => {
-      const r = await swapSeatEloToHype(p!.core, s, setStatus);
+      const r = await swapSeatEloToHype(p!.core, s, setStatus, receiveRoute(p!.priv, p!.address));
       if (book) book.save(book.load().map((x) => (x.account === s.account ? { ...x, done: true } : x)));
       setStatus(`Swapped ${fmt(r.eloIn)} ELO; the HYPE is in your private balance.`);
     });

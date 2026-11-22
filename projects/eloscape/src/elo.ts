@@ -12,7 +12,7 @@ import { encodeAbiParameters, encodeFunctionData, keccak256, parseAbi, type Addr
 import type { GloamCore } from "@cloakely/sdk";
 import { ELOSCAPE, HYPE } from "./config.js";
 import { claimEloCall } from "./game.js";
-import { returnSeat, seatCall, type Seat, type Status } from "./seat.js";
+import { returnSeat, seatCall, type ReceiveRoute, type Seat, type Status } from "./seat.js";
 
 export const UNISWAP = {
   poolManager: "0xE2e105d3F7209A9DA11f83cCf3E7398a753823F1" as Address,
@@ -53,7 +53,7 @@ export const ELO_SWAP_MAX_LOSS_BPS = 1_000n;
  * Claim the seat's ELO, swap all of it to HYPE in ELO's pool, and return the HYPE (and anything else the seat holds)
  * to the player's private balance. Several relayed transactions, all from the seat; the player's wallet never appears.
  */
-export async function swapSeatEloToHype(core: GloamCore, seat: Seat, onStatus: Status = () => {}): Promise<{ eloIn: bigint; txs: Hex[] }> {
+export async function swapSeatEloToHype(core: GloamCore, seat: Seat, onStatus: Status = () => {}, viaReceive?: () => Promise<ReceiveRoute>): Promise<{ eloIn: bigint; txs: Hex[] }> {
   const pub = core.config.publicClient as PublicClient;
   const ERC20 = parseAbi(["function approve(address,uint256) returns (bool)", "function balanceOf(address) view returns (uint256)"]);
   const txs: Hex[] = [];
@@ -92,6 +92,6 @@ export async function swapSeatEloToHype(core: GloamCore, seat: Seat, onStatus: S
     }),
   );
   onStatus("Returning the HYPE to your private balance");
-  txs.push(...(await returnSeat(core, seat, onStatus)));
+  txs.push(...(await returnSeat(core, seat, onStatus, viaReceive)));
   return { eloIn, txs };
 }

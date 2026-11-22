@@ -116,12 +116,39 @@ export async function seatFunded(pub: PublicClient, seat: Seat): Promise<boolean
   return pub.readContract({ address: PRIVACY.gloamVault, abi: VAULT_ABI, functionName: "isSpent", args: [seat.key.nullifier] });
 }
 
-/** Put all the seat's HYPE back into Gloam's vault as new private notes of the player (several if over the cap). */
-export async function returnSeat(core: GloamCore, seat: Seat, onStatus: Status = () => {}): Promise<Hex[]> {
+/**
+ * A fresh receive address of the player's private account, and how to sweep it into the private balance. A seat the
+ * escrow has closed (it was emptied by an earlier return) can't use finish() again, so its HYPE goes out through the
+ * owner-signed exit() to one of these, and is swept in from there: still no link to the player's wallet.
+ */
+export interface ReceiveRoute {
+  address: Address;
+  collect: () => Promise<unknown>;
+}
+
+/** Has the escrow closed this seat (emptied by an earlier finish)? Then finish() is refused and exit() is the way out. */
+export async function seatClosed(pub: PublicClient, seat: Seat): Promise<boolean> {
+  return pub.readContract({ address: seat.bids, abi: parseAbi(["function closed(address) view returns (bool)"]), functionName: "closed", args: [seat.account] });
+}
+
+/**
+ * Put all the seat's HYPE back into the player's private balance: as new notes in Gloam's vault through finish() while
+ * the seat is open, or, once the escrow has closed it, through exit() to a fresh receive address that is then swept in.
+ */
+export async function returnSeat(core: GloamCore, seat: Seat, onStatus: Status = () => {}, viaReceive?: () => Promise<ReceiveRoute>): Promise<Hex[]> {
   const pub = core.config.publicClient as PublicClient;
   const bal = await pub.getBalance({ address: seat.account });
   if (bal === 0n) return [];
-  return gloamFinishBid(core, seat, [{ asset: HYPE, amount: bal }], onStatus);
+  if (!(await seatClosed(pub, seat))) return gloamFinishBid(core, seat, [{ asset: HYPE, amount: bal }], onStatus);
+  if (!viaReceive) throw new Error("This seat was already returned once; its new HYPE needs a receive address to come back privately.");
+  const route = await viaReceive();
+  onStatus("Moving it to a fresh receive address of your private account");
+  const digest = (await pub.readContract({ address: seat.bids, abi: BIDS, functionName: "exitDigest", args: [seat.account, route.address] })) as Hex;
+  const signature = await privateKeyToAccount(core.exitKeyFor(seat.key.nullifier)).sign({ hash: digest });
+  const tx = await core.config.submit({ kind: "escrow", to: seat.bids, data: encodeFunctionData({ abi: BIDS, functionName: "exit", args: [seat.key, route.address, [], signature] }) });
+  onStatus("Sweeping it into your private balance");
+  await route.collect();
+  return [tx];
 }
 
 /** Send the seat's ELO to an address of the player's choice (ELO can't go into Gloam's vault). */

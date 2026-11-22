@@ -12,7 +12,7 @@ import type { Address, Hex, PublicClient } from "viem";
 import type { GloamCore } from "@cloakely/sdk";
 import { ELOSCAPE } from "./config.js";
 import { GRID, MIN_DEPLOY, autoFixedCall, claimEthCall, deployCall, liveRound, owed, stopAutoCall } from "./game.js";
-import { openSeat, returnSeat, seatCall, sendSeatCall, signSeatCall, type Seat, type SignedSeatCall, type Status } from "./seat.js";
+import { openSeat, returnSeat, seatCall, sendSeatCall, signSeatCall, type ReceiveRoute, type Seat, type SignedSeatCall, type Status } from "./seat.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const DAY = 86_400n;
@@ -128,7 +128,7 @@ export async function privateAuto(core: GloamCore, p: { amount: bigint; blocks: 
  * Collect a seat: stop its Auto if it runs, claim its HYPE from the game, and put everything back into Gloam's vault
  * as new private notes. ELO stays with the seat (sendSeatElo moves it).
  */
-export async function collect(core: GloamCore, seat: Seat, onStatus: Status = () => {}): Promise<Hex[]> {
+export async function collect(core: GloamCore, seat: Seat, onStatus: Status = () => {}, viaReceive?: () => Promise<ReceiveRoute>): Promise<Hex[]> {
   const pub = core.config.publicClient as PublicClient;
   const out: Hex[] = [];
   const o = await owed(pub, seat.account);
@@ -141,7 +141,7 @@ export async function collect(core: GloamCore, seat: Seat, onStatus: Status = ()
     onStatus("Claiming winnings");
     out.push(await seatCall(core, seat, { target: ELOSCAPE.game, data: claimEthCall() }));
   }
-  out.push(...(await returnSeat(core, seat, onStatus)));
+  out.push(...(await returnSeat(core, seat, onStatus, viaReceive)));
   return out;
 }
 
