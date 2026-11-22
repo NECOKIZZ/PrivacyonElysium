@@ -9,6 +9,7 @@ export const GAME_ABI = parseAbi([
   "function stopConfig()",
   "function claimETH()",
   "function claimELO()",
+  "function claimAll(uint64[] roundIds, bool withElo)",
   "function checkpoint(uint64 roundId)",
   "function claimStanding(uint64 toRound)",
   "function currentRoundId() view returns (uint64)",
@@ -34,6 +35,8 @@ export const autoFixedCall = (blocks: number[], perBlock: bigint): Hex =>
   encodeFunctionData({ abi: GAME_ABI, functionName: "setConfigFixed", args: [maskOf(blocks), perBlock] });
 export const stopAutoCall = (): Hex => encodeFunctionData({ abi: GAME_ABI, functionName: "stopConfig" });
 export const claimEthCall = (): Hex => encodeFunctionData({ abi: GAME_ABI, functionName: "claimETH" });
+/** HYPE winnings and refunds, and (withElo) ELO, in one call; it also checkpoints the seat's last round. */
+export const claimAllCall = (withElo: boolean): Hex => encodeFunctionData({ abi: GAME_ABI, functionName: "claimAll", args: [[], withElo] });
 export const claimEloCall = (): Hex => encodeFunctionData({ abi: GAME_ABI, functionName: "claimELO" });
 
 export function maskOf(blocks: number[]): bigint {

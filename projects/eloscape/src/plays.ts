@@ -11,7 +11,8 @@
 import type { Address, Hex, PublicClient } from "viem";
 import type { GloamCore } from "@cloakely/sdk";
 import { ELOSCAPE } from "./config.js";
-import { GRID, MIN_DEPLOY, autoFixedCall, claimEthCall, deployCall, liveRound, owed, stopAutoCall } from "./game.js";
+import { GRID, MIN_DEPLOY, autoFixedCall, claimAllCall, deployCall, liveRound, owed, stopAutoCall } from "./game.js";
+import { ELO_MIN_SWAP, swapHeldElo } from "./elo.js";
 import { openSeat, returnSeat, seatCall, sendSeatCall, signSeatCall, type ReceiveRoute, type Seat, type SignedSeatCall, type Status } from "./seat.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -125,24 +126,33 @@ export async function privateAuto(core: GloamCore, p: { amount: bigint; blocks: 
 }
 
 /**
- * Collect a seat: stop its Auto if it runs, claim its HYPE from the game, and put everything back into Gloam's vault
- * as new private notes. ELO stays with the seat (sendSeatElo moves it).
+ * Collect a seat: stop its Auto if it runs, claim what the game owes it (HYPE, and ELO when swapping) in one call,
+ * swap its ELO to HYPE when asked (and worth it), and put everything back into the private balance in one return.
+ * Without swapElo, ELO stays credited to the seat for Send ELO later.
  */
-export async function collect(core: GloamCore, seat: Seat, onStatus: Status = () => {}, viaReceive?: () => Promise<ReceiveRoute>): Promise<Hex[]> {
+export async function collect(
+  core: GloamCore,
+  seat: Seat,
+  onStatus: Status = () => {},
+  viaReceive?: () => Promise<ReceiveRoute>,
+  opts: { swapElo?: boolean } = {},
+): Promise<{ txs: Hex[]; eloSwapped: bigint }> {
   const pub = core.config.publicClient as PublicClient;
-  const out: Hex[] = [];
+  const txs: Hex[] = [];
   const o = await owed(pub, seat.account);
   if (o.autoActive) {
     onStatus("Stopping Auto");
-    out.push(await seatCall(core, seat, { target: ELOSCAPE.game, data: stopAutoCall() }));
+    txs.push(await seatCall(core, seat, { target: ELOSCAPE.game, data: stopAutoCall() }));
   }
-  const after = await owed(pub, seat.account);
-  if (after.hype > 0n) {
-    onStatus("Claiming winnings");
-    out.push(await seatCall(core, seat, { target: ELOSCAPE.game, data: claimEthCall() }));
+  const swap = !!opts.swapElo && o.elo >= ELO_MIN_SWAP;
+  const after = o.autoActive ? await owed(pub, seat.account) : o;
+  if (after.hype > 0n || swap) {
+    onStatus(swap ? "Claiming winnings and ELO" : "Claiming winnings");
+    txs.push(await seatCall(core, seat, { target: ELOSCAPE.game, data: claimAllCall(swap) }));
   }
-  out.push(...(await returnSeat(core, seat, onStatus, viaReceive)));
-  return out;
+  const eloSwapped = swap ? await swapHeldElo(core, seat, onStatus) : 0n;
+  txs.push(...(await returnSeat(core, seat, onStatus, viaReceive)));
+  return { txs, eloSwapped };
 }
 
 // ── Phase 2 ─────────────────────────────────────────────────────────────────

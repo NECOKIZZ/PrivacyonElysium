@@ -161,3 +161,6 @@ code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
 .howto { margin-bottom: 30px; }
 .howto ol { margin: 6px 0 0; padding-left: 20px; color: var(--soft); font-size: 14.5px; }
 .howto li { margin: 6px 0; }
+.seg.small button { padding: 5px 11px; font-size: 13px; }
+.seats-sum { padding: 8px 0 4px; }
+.field > span { display: block; margin-bottom: 4px; }

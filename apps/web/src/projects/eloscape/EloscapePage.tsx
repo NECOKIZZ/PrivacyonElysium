@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatEther, isAddress, parseEther, type Address, type WalletClient } from "viem";
 import {
-  ELOSCAPE, GRID, MIN_DEPLOY, SEAL_LEAD_SECONDS, collect, liveRound, owed, privateAuto, privatePlay, sealedPlay, sendSeatElo, splitPlay, splitSizes, swapSeatEloToHype,
+  ELOSCAPE, GRID, MIN_DEPLOY, SEAL_LEAD_SECONDS, ELO_MIN_SWAP, collect, liveRound, owed, privateAuto, privatePlay, sealedPlay, sendSeatElo, splitPlay, splitSizes,
   type LiveRound, type Seat,
 } from "@privacy-for-elysium/eloscape";
 import { Footer, REPO, SDK_DOCS, TopBar, go } from "../../pages/chrome";
@@ -125,6 +125,9 @@ export function EloscapePage() {
   const [outAmt, setOutAmt] = useState("");
   const [eloTo, setEloTo] = useState("");
   const [sheet, setSheet] = useState<"" | "shield" | "withdraw">("");
+  const [eloMode, setEloMode] = useState<"swap" | "keep">(() => (cache.get<string>("eloMode") === "keep" ? "keep" : "swap"));
+  const setEloModeSaved = (m: "swap" | "keep") => (setEloMode(m), cache.set("eloMode", m));
+  const [showAll, setShowAll] = useState(false);
   const [syncErr, setSyncErr] = useState("");
   const [lastMine, setLastMine] = useState<{ round: string; won: number; lost: number } | null>(null);
 
@@ -224,15 +227,62 @@ export function EloscapePage() {
     setSheet("");
   };
 
+  /** A seat has something to collect: HYPE, a running Auto, or (when swapping) enough ELO to be worth it. */
+  const due = (s: BookSeat) => {
+    const o = owedBy[s.account];
+    return !!o && (o.hype + o.held > 0n || o.autoActive || (eloMode === "swap" && o.elo >= ELO_MIN_SWAP));
+  };
+  const markCollected = (s: BookSeat, swapped: boolean) => {
+    if (!book) return;
+    const keepsElo = eloMode === "keep" && (owedBy[s.account]?.elo ?? 0n) > 0n;
+    book.save(book.load().map((x) => (x.account === s.account ? { ...x, done: swapped || !keepsElo } : x)));
+  };
+  const relayLimited = (e: unknown) => /429|your share|budget|too many/i.test(e instanceof Error ? e.message : String(e));
+
+  /** Every seat with something due, one after another; a failing seat is skipped, a relay limit pauses the run. */
   const collectAll = () =>
     run("Collecting all seats", async () => {
-      const due = seats.filter((s) => !s.done && owedBy[s.account] && (owedBy[s.account].hype + owedBy[s.account].held > 0n || owedBy[s.account].autoActive));
-      for (let i = 0; i < due.length; i++) {
-        setStatus(`Collecting seat ${i + 1} of ${due.length}`);
-        await collect(p!.core, due[i], setStatus, receiveRoute(p!.priv, p!.address));
-        if (book) book.save(book.load().map((x) => (x.account === due[i].account ? { ...x, done: (owedBy[x.account]?.elo ?? 0n) === 0n } : x)));
+      const list = seats.filter((s) => !s.done && due(s));
+      let ok = 0;
+      let failed = 0;
+      for (let i = 0; i < list.length; i++) {
+        setStatus(`Collecting seat ${i + 1} of ${list.length}${eloMode === "swap" ? " (with its ELO)" : ""}`);
+        try {
+          const r = await collect(p!.core, list[i], () => {}, receiveRoute(p!.priv, p!.address), { swapElo: eloMode === "swap" });
+          markCollected(list[i], r.eloSwapped > 0n);
+          ok++;
+        } catch (e) {
+          if (relayLimited(e)) {
+            setStatus(`Collected ${ok} of ${list.length}. The relay's hourly limit is reached; press Collect all again later for the rest.`);
+            return;
+          }
+          failed++;
+        }
       }
-      setStatus(due.length ? `Collected ${due.length} seat${due.length > 1 ? "s" : ""} into your private balance.` : "Nothing to collect.");
+      setStatus(list.length ? `Collected ${ok} seat${ok === 1 ? "" : "s"}${failed ? `; ${failed} failed and stay listed` : ""}.` : "Nothing to collect.");
+    });
+
+  /** Keep mode: every seat's ELO to one address (that links those seats to each other on chain). */
+  const sendAllElo = () =>
+    run("Sending ELO", async () => {
+      if (!isAddress(eloTo)) throw new Error("Enter the address to send ELO to.");
+      const list = seats.filter((s) => !s.done && (owedBy[s.account]?.elo ?? 0n) > 0n);
+      let ok = 0;
+      for (let i = 0; i < list.length; i++) {
+        setStatus(`Sending ELO from seat ${i + 1} of ${list.length}`);
+        try {
+          await sendSeatElo(p!.core, list[i], eloTo as Address);
+          ok++;
+          const o = owedBy[list[i].account];
+          if (book && o && o.hype + o.held === 0n && !o.autoActive) book.save(book.load().map((x) => (x.account === list[i].account ? { ...x, done: true } : x)));
+        } catch (e) {
+          if (relayLimited(e)) {
+            setStatus(`Sent from ${ok} of ${list.length} seats. The relay's hourly limit is reached; try again later for the rest.`);
+            return;
+          }
+        }
+      }
+      setStatus(`ELO sent from ${ok} seat${ok === 1 ? "" : "s"}.`);
     });
 
   const toggleBlock = (b: number) => setBlocks((x) => (x.includes(b) ? x.filter((y) => y !== b) : [...x, b].sort((a, c) => a - c)));
@@ -280,23 +330,9 @@ export function EloscapePage() {
 
   const collectSeat = (s: BookSeat) =>
     run("Bringing it back to your private balance", async () => {
-      await collect(p!.core, s, setStatus, receiveRoute(p!.priv, p!.address));
-      if (book) book.save(book.load().map((x) => (x.account === s.account ? { ...x, done: (owedBy[s.account]?.elo ?? 0n) === 0n } : x)));
-      setStatus("Back in your private balance.");
-    });
-
-  const eloSwap = (s: BookSeat) =>
-    run("Swapping ELO to HYPE", async () => {
-      const r = await swapSeatEloToHype(p!.core, s, setStatus, receiveRoute(p!.priv, p!.address));
-      if (book) book.save(book.load().map((x) => (x.account === s.account ? { ...x, done: true } : x)));
-      setStatus(`Swapped ${fmt(r.eloIn)} ELO; the HYPE is in your private balance.`);
-    });
-
-  const eloOut = (s: BookSeat) =>
-    run("Sending ELO", async () => {
-      if (!isAddress(eloTo)) throw new Error("Enter the address to send ELO to.");
-      await sendSeatElo(p!.core, s, eloTo as Address);
-      setStatus("ELO sent.");
+      const r = await collect(p!.core, s, setStatus, receiveRoute(p!.priv, p!.address), { swapElo: eloMode === "swap" });
+      markCollected(s, r.eloSwapped > 0n);
+      setStatus(r.eloSwapped > 0n ? `Back in your private balance, with ${fmt(r.eloSwapped)} ELO swapped to HYPE.` : "Back in your private balance.");
     });
 
   const lastSecs = `in the last ${SEAL_LEAD_SECONDS}s of the round`;
@@ -307,6 +343,14 @@ export function EloscapePage() {
           seen: `${split ? "Separate fresh addresses, each a standard piece," : "A fresh address"} on your blocks${sealed ? `, only ${lastSecs}` : ""}${split ? "." : ", with its amount."}`,
           hidden: ["Your wallet", sealed && `your blocks until ${SEAL_LEAD_SECONDS}s before close`, split && "your total amount"].filter(Boolean).join(", ") + ".",
         };
+  const openSeats = seats.filter((s) => !s.done);
+  const totals = openSeats.reduce(
+    (t, s) => {
+      const o = owedBy[s.account];
+      return o ? { hype: t.hype + o.hype + o.held, elo: t.elo + o.elo } : t;
+    },
+    { hype: 0n, elo: 0n },
+  );
   const ready = !!p;
   const canPlay = ready && !busy && blocks.length > 0 && stake > 0n && (mode === "once" ? (bal ?? 0n) >= stake : (bal ?? 0n) >= stake);
 
@@ -531,60 +575,68 @@ export function EloscapePage() {
         </a>
       </div>
       <div className="panel" style={{ marginBottom: 40 }}>
-            <div className="row">
-              <h2 style={{ margin: 0 }}>Your seats</h2>
-              {ready && seats.filter((s) => !s.done).length > 1 && (
-                <button className="btn small" disabled={busy} onClick={collectAll}>
-                  Collect all
-                </button>
-              )}
-            </div>
-            <p className="muted small" style={{ marginTop: 0 }}>
-              One-time addresses that played for you. Collect returns their HYPE to your private balance.
-            </p>
-            {!seats.filter((s) => !s.done).length && <p className="muted small">No open seats yet.</p>}
-            {seats
-              .filter((s) => !s.done)
-              .map((s) => {
-                const o = owedBy[s.account];
-                return (
-                  <div key={s.account} className="seat">
-                    <div className="row">
-                      <span>{s.label}</span>
-                      <a href={EXPLORER + s.account} target="_blank" rel="noreferrer">
-                        <code>{short(s.account)}</code>
-                      </a>
-                    </div>
-                    <div className="row muted">
-                      <span className="num">
-                        {o ? `${fmt(o.hype + o.held)} HYPE to collect${o.autoActive ? ` · Auto ${fmt(o.autoBalance)} left` : ""}${o.elo > 0n ? ` · ${fmt(o.elo)} ELO` : ""}` : <span className="shimmer" style={{ width: 160, height: 14 }} />}
-                      </span>
-                      <span style={{ display: "flex", gap: 6 }}>
-                        {o && o.elo > 0n && (
-                          <>
-                            <button className="btn small" onClick={() => eloSwap(s)} disabled={busy} title="Swap in ELO's pool and keep the HYPE private">
-                              ELO → private HYPE
-                            </button>
-                            <button className="btn small" onClick={() => eloOut(s)} disabled={busy} title="Claim the ELO and send it to an address you choose">
-                              Send ELO
-                            </button>
-                          </>
-                        )}
-                        <button className="btn small" onClick={() => collectSeat(s)} disabled={busy || !o || (o.hype + o.held === 0n && !o.autoActive)}>
-                          {o?.autoActive ? "Stop & collect" : "Collect"}
-                        </button>
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            {seats.some((s) => !s.done && (owedBy[s.account]?.elo ?? 0n) > 0n) && (
-              <label className="field">
-                ELO can't enter the private vault. Swap it to private HYPE (Eloscape's pool and hook fees apply, about 4%), or send it to:
-                <input className="input" placeholder="0x… (a fresh address keeps it unlinked)" value={eloTo} onChange={(e) => setEloTo(e.target.value.trim())} />
-              </label>
+        <div className="row" style={{ flexWrap: "wrap", gap: 10 }}>
+          <h2 style={{ margin: 0 }}>Your seats</h2>
+          <span style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <span className="seg small" title="What happens to the ELO your seats earn">
+              <button className={eloMode === "swap" ? "on" : ""} onClick={() => setEloModeSaved("swap")}>ELO → private HYPE</button>
+              <button className={eloMode === "keep" ? "on" : ""} onClick={() => setEloModeSaved("keep")}>Keep ELO</button>
+            </span>
+            {ready && openSeats.some(due) && (
+              <button className="btn small primary" disabled={busy} onClick={collectAll}>
+                Collect all ({openSeats.filter(due).length})
+              </button>
             )}
+          </span>
+        </div>
+        <p className="muted small" style={{ marginTop: 6 }}>
+          One-time addresses that played for you. Collect returns their HYPE to your private balance
+          {eloMode === "swap" ? ", and swaps their ELO to HYPE on the way (about 4% in pool and Eloscape fees; amounts under 0.02 ELO stay)." : ". Their ELO stays in them until you send it."}
+        </p>
+        {!openSeats.length && <p className="muted small">No open seats yet.</p>}
+        {openSeats.length > 0 && (
+          <div className="seats-sum muted small">
+            {openSeats.length} seat{openSeats.length > 1 ? "s" : ""} · {fmt(totals.hype)} HYPE to collect{totals.elo > 0n ? ` · ${fmt(totals.elo)} ELO` : ""}
           </div>
+        )}
+        {openSeats.slice(0, showAll ? openSeats.length : 8).map((s) => {
+          const o = owedBy[s.account];
+          return (
+            <div key={s.account} className="seat">
+              <div className="row">
+                <span>{s.label}</span>
+                <a href={EXPLORER + s.account} target="_blank" rel="noreferrer">
+                  <code>{short(s.account)}</code>
+                </a>
+              </div>
+              <div className="row muted">
+                <span className="num">
+                  {o ? `${fmt(o.hype + o.held)} HYPE${o.autoActive ? ` · Auto ${fmt(o.autoBalance)} left` : ""}${o.elo > 0n ? ` · ${fmt(o.elo)} ELO` : ""}` : <span className="shimmer" style={{ width: 160, height: 14 }} />}
+                </span>
+                <button className="btn small" onClick={() => collectSeat(s)} disabled={busy || !due(s)}>
+                  {o?.autoActive ? "Stop & collect" : "Collect"}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+        {openSeats.length > 8 && (
+          <button className="btn small" style={{ marginTop: 8 }} onClick={() => setShowAll(!showAll)}>
+            {showAll ? "Show fewer" : `Show all ${openSeats.length} seats`}
+          </button>
+        )}
+        {eloMode === "keep" && totals.elo > 0n && (
+          <div className="field">
+            <span>Send all your seats' ELO to one address. Sending from several seats to one address links those seats to each other on chain.</span>
+            <div className="sheet">
+              <input className="input" placeholder="0x… (a fresh address stays unlinked from your wallet)" value={eloTo} onChange={(e) => setEloTo(e.target.value.trim())} />
+              <button className="btn primary" disabled={busy || !isAddress(eloTo)} onClick={sendAllElo}>
+                Send all ELO
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
       <section className="panel howto">
         <h2>How to play</h2>
         <ol>
@@ -594,9 +646,8 @@ export function EloscapePage() {
           <li><b>Play.</b> A fresh address plays for you; your wallet never appears. Too close to the end of a round? It goes into the next one.</li>
           <li><b>Collect</b> after the round: winnings go back into your private balance.</li>
           <li>
-            <b>ELO</b> can't enter the vault, so each seat keeps it until you choose: <i>ELO → private HYPE</i> swaps it in ELO's pool and
-            puts the HYPE in your private balance (about 4% in pool and Eloscape fees), or <i>Send ELO</i> sends it to an address you choose
-            (a fresh one stays unlinked).
+            <b>ELO</b> can't enter the vault. Pick once, above your seats: <i>ELO → private HYPE</i> swaps it as you collect (about 4% in pool
+            and Eloscape fees), or <i>Keep ELO</i> leaves it in the seats until you send it all to one address.
           </li>
           <li><b>Withdraw</b> to any address whenever you like.</li>
         </ol>

@@ -177,18 +177,10 @@ try {
   await page.screenshot({ path: `${OUT}/ui-2-won.png`, fullPage: true });
   const before = await balance();
   await page.getByRole("button", { name: "Collect" }).first().click();
-  await waitStatus(/Back in your private balance/, 900_000);
+  const collected = await waitStatus(/Back in your private balance/, 900_000);
+  check(/ELO swapped to HYPE/.test(collected), `the seat's ELO was swapped on collect: "${collected}"`);
   for (let i = 0; i < 60 && (await balance()) <= before; i++) await sleep(2000);
   check((await balance()) > before, `collected: private balance ${before} → ${await balance()}`);
-
-  log("Swap the seat's ELO to private HYPE");
-  const eloBtn = page.getByRole("button", { name: "ELO → private HYPE" }).first();
-  await eloBtn.waitFor({ timeout: 120_000 });
-  const beforeSwap = await balance();
-  await eloBtn.click();
-  await waitStatus(/HYPE is in your private balance/, 900_000);
-  for (let i = 0; i < 60 && (await balance()) <= beforeSwap; i++) await sleep(2000);
-  check((await balance()) > beforeSwap, `ELO swapped privately: private balance ${beforeSwap} → ${await balance()}`);
 
   log("Sealed + split: 0.35 on block 21");
   await page.locator(".cell").nth(7).click(); // unselect 8

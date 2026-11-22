@@ -49,32 +49,30 @@ export async function quoteEloToHype(pub: PublicClient, eloIn: bigint): Promise<
 /** Slippage allowed below the pool price: the pool's 1%, the hook's fee (~3%), and room for the price to move. */
 export const ELO_SWAP_MAX_LOSS_BPS = 1_000n;
 
+/** Below this, a seat's ELO isn't worth swapping (pool and hook fees on a few cents); it stays in the seat. */
+export const ELO_MIN_SWAP = 20_000_000_000_000_000n; // 0.02 ELO
+
 /**
- * Claim the seat's ELO, swap all of it to HYPE in ELO's pool, and return the HYPE (and anything else the seat holds)
- * to the player's private balance. Several relayed transactions, all from the seat; the player's wallet never appears.
+ * Swap all the ELO the seat holds (already claimed) to HYPE in ELO's pool, into the seat. Three seat calls: approve
+ * Permit2, Permit2 approve for the Universal Router, the swap. Returns the ELO swapped (0 if below ELO_MIN_SWAP).
  */
-export async function swapSeatEloToHype(core: GloamCore, seat: Seat, onStatus: Status = () => {}, viaReceive?: () => Promise<ReceiveRoute>): Promise<{ eloIn: bigint; txs: Hex[] }> {
+export async function swapHeldElo(core: GloamCore, seat: Seat, onStatus: Status = () => {}): Promise<bigint> {
   const pub = core.config.publicClient as PublicClient;
   const ERC20 = parseAbi(["function approve(address,uint256) returns (bool)", "function balanceOf(address) view returns (uint256)"]);
-  const txs: Hex[] = [];
-  onStatus("Claiming ELO");
-  txs.push(await seatCall(core, seat, { target: ELOSCAPE.game, data: claimEloCall() }).catch(() => "0x" as Hex));
   const eloIn = await pub.readContract({ address: ELOSCAPE.elo, abi: ERC20, functionName: "balanceOf", args: [seat.account] });
-  if (eloIn === 0n) throw new Error("This seat has no ELO to swap.");
+  if (eloIn < ELO_MIN_SWAP) return 0n;
   const fair = await quoteEloToHype(pub, eloIn);
   const minOut = (fair * (10_000n - ELO_SWAP_MAX_LOSS_BPS)) / 10_000n;
-  onStatus("Approving the swap");
-  txs.push(await seatCall(core, seat, { target: ELOSCAPE.elo, data: encodeFunctionData({ abi: ERC20, functionName: "approve", args: [UNISWAP.permit2, eloIn] }) }));
-  txs.push(
-    await seatCall(core, seat, {
-      target: UNISWAP.permit2,
-      data: encodeFunctionData({
-        abi: parseAbi(["function approve(address token, address spender, uint160 amount, uint48 expiration)"]),
-        functionName: "approve",
-        args: [ELOSCAPE.elo, UNISWAP.universalRouter, eloIn, Math.floor(Date.now() / 1000) + 1800],
-      }),
+  onStatus("Approving the ELO swap");
+  await seatCall(core, seat, { target: ELOSCAPE.elo, data: encodeFunctionData({ abi: ERC20, functionName: "approve", args: [UNISWAP.permit2, eloIn] }) });
+  await seatCall(core, seat, {
+    target: UNISWAP.permit2,
+    data: encodeFunctionData({
+      abi: parseAbi(["function approve(address token, address spender, uint160 amount, uint48 expiration)"]),
+      functionName: "approve",
+      args: [ELOSCAPE.elo, UNISWAP.universalRouter, eloIn, Math.floor(Date.now() / 1000) + 1800],
     }),
-  );
+  });
   const k = await eloPoolKey(pub);
   const swap = encodeAbiParameters(
     [{ type: "tuple", components: [{ type: "tuple", components: KEY as never }, { type: "bool" }, { type: "uint128" }, { type: "uint128" }, { type: "bytes" }] }] as never,
@@ -85,13 +83,19 @@ export async function swapSeatEloToHype(core: GloamCore, seat: Seat, onStatus: S
   // V4_SWAP (0x10): SWAP_EXACT_IN_SINGLE (0x06), SETTLE_ALL (0x0c), TAKE_ALL (0x0f)
   const input = encodeAbiParameters([{ type: "bytes" }, { type: "bytes[]" }], ["0x060c0f", [swap, settleAll, takeAll]]);
   onStatus("Swapping ELO to HYPE");
-  txs.push(
-    await seatCall(core, seat, {
-      target: UNISWAP.universalRouter,
-      data: encodeFunctionData({ abi: parseAbi(["function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"]), functionName: "execute", args: ["0x10", [input], BigInt(Math.floor(Date.now() / 1000) + 600)] }),
-    }),
-  );
+  await seatCall(core, seat, {
+    target: UNISWAP.universalRouter,
+    data: encodeFunctionData({ abi: parseAbi(["function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"]), functionName: "execute", args: ["0x10", [input], BigInt(Math.floor(Date.now() / 1000) + 600)] }),
+  });
+  return eloIn;
+}
+
+/** Claim the seat's ELO, swap it to HYPE, and return everything the seat holds to the private balance. */
+export async function swapSeatEloToHype(core: GloamCore, seat: Seat, onStatus: Status = () => {}, viaReceive?: () => Promise<ReceiveRoute>): Promise<{ eloIn: bigint; txs: Hex[] }> {
+  onStatus("Claiming ELO");
+  await seatCall(core, seat, { target: ELOSCAPE.game, data: claimEloCall() }).catch(() => null);
+  const eloIn = await swapHeldElo(core, seat, onStatus);
+  if (eloIn === 0n) throw new Error("This seat has too little ELO to swap.");
   onStatus("Returning the HYPE to your private balance");
-  txs.push(...(await returnSeat(core, seat, onStatus, viaReceive)));
-  return { eloIn, txs };
+  return { eloIn, txs: await returnSeat(core, seat, onStatus, viaReceive) };
 }
