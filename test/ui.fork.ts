@@ -143,7 +143,7 @@ try {
 
   log("Connect & go private");
   await page.getByRole("button", { name: "Connect", exact: true }).first().click();
-  await page.getByText("Private mode on").waitFor({ timeout: 600_000 });
+  await page.locator(".wallet-btn").waitFor({ timeout: 600_000 });
   check(true, "private account unlocked with one signature");
 
   log("Shield 2 HYPE");
@@ -180,6 +180,15 @@ try {
   await waitStatus(/Back in your private balance/, 900_000);
   for (let i = 0; i < 60 && (await balance()) <= before; i++) await sleep(2000);
   check((await balance()) > before, `collected: private balance ${before} → ${await balance()}`);
+
+  log("Swap the seat's ELO to private HYPE");
+  const eloBtn = page.getByRole("button", { name: "ELO → private HYPE" }).first();
+  await eloBtn.waitFor({ timeout: 120_000 });
+  const beforeSwap = await balance();
+  await eloBtn.click();
+  await waitStatus(/HYPE is in your private balance/, 900_000);
+  for (let i = 0; i < 60 && (await balance()) <= beforeSwap; i++) await sleep(2000);
+  check((await balance()) > beforeSwap, `ELO swapped privately: private balance ${beforeSwap} → ${await balance()}`);
 
   log("Sealed + split: 0.35 on block 21");
   await page.locator(".cell").nth(7).click(); // unselect 8

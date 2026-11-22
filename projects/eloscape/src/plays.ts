@@ -65,6 +65,26 @@ export const PLAY_MIN_LEFT = 5;
 /** Eloscape's own app stops Auto setups 20 s before close; this does the same. */
 export const AUTO_MIN_LEFT = 20;
 
+/**
+ * Send a seat's deploy into the next open round, and if it doesn't make it (the round closed while the relay was
+ * sending: the relay simulates first, so nothing is spent), wait for the following round and send it again.
+ */
+async function deployInOpenRound(core: GloamCore, seat: Seat, blocks: number[], onStatus: Status): Promise<{ tx: Hex; roundId: bigint }> {
+  const pub = core.config.publicClient as PublicClient;
+  for (let attempt = 0; ; attempt++) {
+    const r = await waitOpenRound(pub, PLAY_MIN_LEFT, onStatus);
+    try {
+      const tx = await seatCall(core, seat, { target: ELOSCAPE.game, value: playValue(seat.arrived, blocks), data: deployCall(blocks) });
+      return { tx, roundId: r.id };
+    } catch (e) {
+      const now = await liveRound(pub);
+      const closed = now.id !== r.id || Number((await pub.getBlock()).timestamp) >= now.endTime;
+      if (!closed || attempt >= 2) throw e;
+      onStatus("That round closed first; playing in the next one");
+    }
+  }
+}
+
 async function waitFunded(core: GloamCore, seat: Seat): Promise<void> {
   const pub = core.config.publicClient as PublicClient;
   for (let i = 0; i < 120; i++) {
@@ -81,10 +101,9 @@ export async function privatePlay(core: GloamCore, p: { amount: bigint; blocks: 
   const seat = await openSeat(core, await seatParams(p, p.amount), onStatus);
   p.onSeat?.(seat);
   await waitFunded(core, seat);
-  await waitOpenRound(core.config.publicClient as PublicClient, PLAY_MIN_LEFT, onStatus);
   onStatus("Playing from the seat");
-  const tx = await seatCall(core, seat, { target: ELOSCAPE.game, value: playValue(seat.arrived, p.blocks), data: deployCall(p.blocks) });
-  return { seat, tx };
+  const { tx, roundId } = await deployInOpenRound(core, seat, p.blocks, onStatus);
+  return { seat, tx, roundId };
 }
 
 /**
@@ -194,7 +213,7 @@ export async function sealedPlay(core: GloamCore, p: { amount: bigint; blocks: n
 // ── Phase 3A ────────────────────────────────────────────────────────────────
 
 /** Standard sizes, in HYPE. Every private piece is one of these, so a piece says little about the stake behind it. */
-export const STANDARD_SIZES = ["10", "5", "2", "1", "0.5", "0.2", "0.1", "0.05"].map((x) => BigInt(Math.round(Number(x) * 1e6)) * 10n ** 12n);
+export const STANDARD_SIZES = ["10", "5", "2", "1", "0.5", "0.2", "0.1", "0.05", "0.02", "0.01", "0.005", "0.002", "0.001"].map((x) => BigInt(Math.round(Number(x) * 1e6)) * 10n ** 12n);
 
 /** The standard pieces a stake splits into (largest first); what's below the smallest size stays private. */
 export function splitSizes(amount: bigint): { pieces: bigint[]; left: bigint } {
@@ -214,7 +233,7 @@ export async function splitPlay(
   onStatus: Status = () => {},
 ) {
   const { pieces } = splitSizes(p.amount);
-  if (!pieces.length) throw new Error("The stake is below the smallest standard size (0.05 HYPE).");
+  if (!pieces.length) throw new Error("The stake is below the smallest standard size (0.001 HYPE).");
   const seats: Seat[] = [];
   const used = new Set<bigint>();
   for (let i = 0; i < pieces.length; i++) {
@@ -227,8 +246,7 @@ export async function splitPlay(
   const txs: Hex[] = [];
   for (const s of seats) {
     await waitFunded(core, s);
-    await waitOpenRound(core.config.publicClient as PublicClient, PLAY_MIN_LEFT, onStatus);
-    txs.push(await seatCall(core, s, { target: ELOSCAPE.game, value: playValue(s.arrived, p.blocks), data: deployCall(p.blocks) }));
+    txs.push((await deployInOpenRound(core, s, p.blocks, onStatus)).tx);
     await sleep(1500 + Math.floor(Math.random() * 2500));
   }
   return { seats, txs };

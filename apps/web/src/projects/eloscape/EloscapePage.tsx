@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatEther, isAddress, parseEther, type Address, type WalletClient } from "viem";
 import {
-  ELOSCAPE, GRID, MIN_DEPLOY, SEAL_LEAD_SECONDS, collect, liveRound, owed, privateAuto, privatePlay, sealedPlay, sendSeatElo, splitPlay, splitSizes,
+  ELOSCAPE, GRID, MIN_DEPLOY, SEAL_LEAD_SECONDS, collect, liveRound, owed, privateAuto, privatePlay, sealedPlay, sendSeatElo, splitPlay, splitSizes, swapSeatEloToHype,
   type LiveRound, type Seat,
 } from "@privacy-for-elysium/eloscape";
 import { Footer, REPO, SDK_DOCS, TopBar, go } from "../../pages/chrome";
 import { connectWallet, publicClient, visible } from "../../wallet";
+import { GAME_ABI } from "@privacy-for-elysium/eloscape";
 import { fallbackFor, privateHype, seatBook, sweepFallbacks, unlockPrivate, type Private } from "../../privacy";
 
 const EXPLORER = "https://elysium.kinetiq.xyz/explorer/address/";
@@ -15,10 +16,67 @@ const fmt = (v: bigint, d = 4) => {
 };
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 type BookSeat = Seat & { label: string; done?: boolean };
+
+/** Small per-device cache, so the page shows the last known values at once instead of an empty "loading" state. */
+const cache = {
+  get<T>(k: string): T | null {
+    try {
+      const v = localStorage.getItem(`pfe.cache.${k}`);
+      return v ? (JSON.parse(v) as T) : null;
+    } catch {
+      return null;
+    }
+  },
+  set(k: string, v: unknown) {
+    try {
+      localStorage.setItem(`pfe.cache.${k}`, JSON.stringify(v));
+    } catch {}
+  },
+};
+
+function WalletChip({ address, onDisconnect }: { address: string; onDisconnect: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="wallet-menu">
+      <button className="btn wallet-btn" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span className="dot" />
+        {short(address)}
+        <span className="chev">▾</span>
+      </button>
+      {open && (
+        <>
+          <div className="menu-scrim" onClick={() => setOpen(false)} />
+          <div className="menu">
+            <button
+              onClick={() => {
+                navigator.clipboard?.writeText(address).catch(() => {});
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1200);
+              }}
+            >
+              {copied ? "Copied" : "Copy address"}
+            </button>
+            <a href={EXPLORER + address} target="_blank" rel="noreferrer">
+              View on explorer
+            </a>
+            <button onClick={() => (setOpen(false), onDisconnect())}>Disconnect</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 const blockWord = (bs: number[]) => `block${bs.length > 1 ? "s" : ""} ${bs.map((b) => b + 1).join(", ")}`;
 
+type LastRound = { id: string; winningBlock: number; settled: boolean };
+
 function useRound() {
-  const [round, setRound] = useState<LiveRound | null>(null);
+  const [round, setRound] = useState<LiveRound | null>(() => {
+    const c = cache.get<{ id: string; startTime: number; endTime: number }>("round");
+    return c ? { id: BigInt(c.id), startTime: c.startTime, endTime: c.endTime, totalDeployed: 0n, minerCount: 0n, deployed: [] } : null;
+  });
+  const [last, setLast] = useState<LastRound | null>(() => cache.get<LastRound>("lastRound"));
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   const skew = useRef(0); // chain clock minus device clock
   useEffect(() => {
@@ -28,7 +86,14 @@ function useRound() {
       try {
         const [r, b] = await Promise.all([liveRound(publicClient), publicClient.getBlock()]);
         skew.current = Number(b.timestamp) - Math.floor(Date.now() / 1000);
-        if (live) setRound(r);
+        if (!live) return;
+        setRound(r);
+        cache.set("round", { id: r.id.toString(), startTime: r.startTime, endTime: r.endTime });
+        const prev = r.id - 1n;
+        const [, , winningBlock, settled] = await publicClient.readContract({ address: ELOSCAPE.game, abi: GAME_ABI, functionName: "roundTotals", args: [prev] });
+        const l = { id: prev.toString(), winningBlock: Number(winningBlock), settled };
+        setLast(l);
+        cache.set("lastRound", l);
       } catch {}
     };
     tick();
@@ -36,11 +101,11 @@ function useRound() {
     const c = setInterval(() => setNow(Math.floor(Date.now() / 1000) + skew.current), 500);
     return () => ((live = false), clearInterval(a), clearInterval(c));
   }, []);
-  return { round, now };
+  return { round, now, last };
 }
 
 export function EloscapePage() {
-  const { round, now } = useRound();
+  const { round, now, last } = useRound();
   const [wallet, setWallet] = useState<WalletClient | null>(null);
   const [p, setP] = useState<Private | null>(null);
   const [bal, setBal] = useState<bigint | null>(null);
@@ -61,12 +126,19 @@ export function EloscapePage() {
   const [eloTo, setEloTo] = useState("");
   const [sheet, setSheet] = useState<"" | "shield" | "withdraw">("");
   const [syncErr, setSyncErr] = useState("");
+  const [lastMine, setLastMine] = useState<{ round: string; won: number; lost: number } | null>(null);
 
   const book = useMemo(() => (p ? seatBook(p.address) : null), [p]);
+  const cachedBal = useMemo(() => {
+    const v = p ? cache.get<string>(`bal.${p.address}`) : null;
+    return v ? BigInt(v) : null;
+  }, [p]);
   const refresh = useCallback(async () => {
     if (!p || !book || !visible()) return;
     try {
-      setBal(await privateHype(p.core));
+      const b = await privateHype(p.core);
+      setBal(b);
+      cache.set(`bal.${p.address}`, b.toString());
       setSyncErr("");
     } catch (e) {
       const why = e instanceof Error ? (e as { shortMessage?: string }).shortMessage ?? e.message.split("\n")[0] : String(e);
@@ -90,6 +162,28 @@ export function EloscapePage() {
     const t = setInterval(refresh, 30000);
     return () => clearInterval(t);
   }, [refresh]);
+
+  useEffect(() => {
+    if (!book || !last?.settled) return;
+    let live = true;
+    (async () => {
+      const recent = book.load().slice(-30);
+      const masks = await Promise.all(
+        recent.map((s) =>
+          publicClient
+            .readContract({ address: ELOSCAPE.game, abi: GAME_ABI, functionName: "getMiner", args: [BigInt(last.id), s.account] })
+            .then((m) => m.deployedMask)
+            .catch(() => 0n),
+        ),
+      );
+      const played = masks.filter((m) => m !== 0n);
+      const won = played.filter((m) => (m >> BigInt(last.winningBlock)) & 1n).length;
+      if (live) setLastMine({ round: last.id, won, lost: played.length - won });
+    })();
+    return () => {
+      live = false;
+    };
+  }, [book, last?.id, last?.settled]);
 
   const run = async (label: string, f: () => Promise<unknown>) => {
     setBusy(true);
@@ -118,6 +212,27 @@ export function EloscapePage() {
       setP(u);
       setStatus("");
       sweepFallbacks(u.priv, u.address).catch(() => {}); // a timed-out seat's funds, back into the private balance
+    });
+
+  const disconnect = () => {
+    setP(null);
+    setWallet(null);
+    setBal(null);
+    setSeats([]);
+    setOwedBy({});
+    setLastMine(null);
+    setSheet("");
+  };
+
+  const collectAll = () =>
+    run("Collecting all seats", async () => {
+      const due = seats.filter((s) => !s.done && owedBy[s.account] && (owedBy[s.account].hype + owedBy[s.account].held > 0n || owedBy[s.account].autoActive));
+      for (let i = 0; i < due.length; i++) {
+        setStatus(`Collecting seat ${i + 1} of ${due.length}`);
+        await collect(p!.core, due[i]);
+        if (book) book.save(book.load().map((x) => (x.account === due[i].account ? { ...x, done: (owedBy[x.account]?.elo ?? 0n) === 0n } : x)));
+      }
+      setStatus(due.length ? `Collected ${due.length} seat${due.length > 1 ? "s" : ""} into your private balance.` : "Nothing to collect.");
     });
 
   const toggleBlock = (b: number) => setBlocks((x) => (x.includes(b) ? x.filter((y) => y !== b) : [...x, b].sort((a, c) => a - c)));
@@ -170,6 +285,13 @@ export function EloscapePage() {
       setStatus("Back in your private balance.");
     });
 
+  const eloSwap = (s: BookSeat) =>
+    run("Swapping ELO to HYPE", async () => {
+      const r = await swapSeatEloToHype(p!.core, s, setStatus);
+      if (book) book.save(book.load().map((x) => (x.account === s.account ? { ...x, done: true } : x)));
+      setStatus(`Swapped ${fmt(r.eloIn)} ELO; the HYPE is in your private balance.`);
+    });
+
   const eloOut = (s: BookSeat) =>
     run("Sending ELO", async () => {
       if (!isAddress(eloTo)) throw new Error("Enter the address to send ELO to.");
@@ -193,7 +315,7 @@ export function EloscapePage() {
       <TopBar
         right={
           ready ? (
-            <span className="pill live" title={`Wallet ${short(p!.address)} (shown only on this device)`}>● Private mode on</span>
+            <WalletChip address={p!.address} onDisconnect={disconnect} />
           ) : (
             <button className="btn primary" onClick={connect} disabled={busy}>
               Connect
@@ -243,11 +365,13 @@ export function EloscapePage() {
             <div className="row">
               <div>
                 <div className="muted small">Round</div>
-                <div className="stat">{round ? `#${round.id}` : "…"}</div>
+                <div className="stat">{round ? `#${round.id}` : <span className="shimmer" style={{ width: 90, height: 26 }} />}</div>
               </div>
               <div style={{ textAlign: "right" }}>
-                <div className="muted small">Closes in</div>
-                <div className="stat">{round ? `${left}s` : "…"}</div>
+                <div className="muted small">{round && left === 0 ? "Next round in" : "Closes in"}</div>
+                <div className="stat">
+                  {!round ? <span className="shimmer" style={{ width: 50, height: 26 }} /> : left > 0 ? `${left}s` : `${Math.max(0, round.endTime + 12 - now)}s`}
+                </div>
               </div>
             </div>
             <div className="timer">
@@ -263,6 +387,18 @@ export function EloscapePage() {
             <p className="muted small" style={{ marginBottom: 0 }}>
               Pick your blocks. Round and countdown are live from Eloscape's contract.
             </p>
+            {last && (
+              <div className="lastround">
+                <span>
+                  Last round <b>#{last.id}</b>: {last.settled ? <>block <b>{last.winningBlock + 1}</b> won</> : "settling…"}
+                </span>
+                {lastMine && lastMine.round === last.id && lastMine.won + lastMine.lost > 0 && (
+                  <span className={lastMine.won ? "won" : "lost"}>
+                    {lastMine.won ? `You won${lastMine.won + lastMine.lost > 1 ? ` (${lastMine.won} of ${lastMine.won + lastMine.lost} seats)` : ""}` : "You lost"}
+                  </span>
+                )}
+              </div>
+            )}
           </div>
 
         </div>
@@ -271,7 +407,9 @@ export function EloscapePage() {
           <div className="panel">
             <div className="muted small">Private balance</div>
             <div className="row" style={{ marginTop: 4 }}>
-              <span className="stat" data-testid="private-balance">{!ready ? "—" : bal === null ? "Syncing…" : `${fmt(bal)} HYPE`}</span>
+              <span className="stat" data-testid="private-balance">
+                {!ready ? "—" : bal !== null ? `${fmt(bal)} HYPE` : cachedBal !== null ? <span className="stale">{fmt(cachedBal)} HYPE</span> : <span className="shimmer" style={{ width: 120, height: 26 }} />}
+              </span>
               <span style={{ display: "flex", gap: 8 }}>
                 <button className={`btn ${sheet === "shield" ? "primary" : ""}`} disabled={busy} onClick={() => (ready ? setSheet(sheet === "shield" ? "" : "shield") : connect())}>
                   Shield
@@ -348,7 +486,7 @@ export function EloscapePage() {
                     <b>Also hide my amount</b>
                     <em>
                       Plays as {pieces && pieces.pieces.length ? pieces.pieces.map((x) => formatEther(x)).join(" + ") : "standard pieces"}, each from its own address
-                      {pieces && pieces.left > 0n ? ` (${formatEther(pieces.left)} stays in your balance)` : ""}.
+                      {pieces && pieces.left > 0n ? ` (${formatEther(pieces.left)} stays in your balance)` : ""}. Smallest piece: 0.001 HYPE.
                     </em>
                   </span>
                 </label>
@@ -393,7 +531,14 @@ export function EloscapePage() {
         </a>
       </div>
       <div className="panel" style={{ marginBottom: 40 }}>
-            <h2>Your seats</h2>
+            <div className="row">
+              <h2 style={{ margin: 0 }}>Your seats</h2>
+              {ready && seats.filter((s) => !s.done).length > 1 && (
+                <button className="btn small" disabled={busy} onClick={collectAll}>
+                  Collect all
+                </button>
+              )}
+            </div>
             <p className="muted small" style={{ marginTop: 0 }}>
               One-time addresses that played for you. Collect returns their HYPE to your private balance.
             </p>
@@ -412,13 +557,18 @@ export function EloscapePage() {
                     </div>
                     <div className="row muted">
                       <span className="num">
-                        {o ? `${fmt(o.hype + o.held)} HYPE to collect${o.autoActive ? ` · Auto ${fmt(o.autoBalance)} left` : ""}${o.elo > 0n ? ` · ${fmt(o.elo)} ELO` : ""}` : "…"}
+                        {o ? `${fmt(o.hype + o.held)} HYPE to collect${o.autoActive ? ` · Auto ${fmt(o.autoBalance)} left` : ""}${o.elo > 0n ? ` · ${fmt(o.elo)} ELO` : ""}` : <span className="shimmer" style={{ width: 160, height: 14 }} />}
                       </span>
                       <span style={{ display: "flex", gap: 6 }}>
                         {o && o.elo > 0n && (
-                          <button className="btn small" onClick={() => eloOut(s)} disabled={busy}>
-                            Send ELO
-                          </button>
+                          <>
+                            <button className="btn small" onClick={() => eloSwap(s)} disabled={busy} title="Swap in ELO's pool and keep the HYPE private">
+                              ELO → private HYPE
+                            </button>
+                            <button className="btn small" onClick={() => eloOut(s)} disabled={busy} title="Claim the ELO and send it to an address you choose">
+                              Send ELO
+                            </button>
+                          </>
                         )}
                         <button className="btn small" onClick={() => collectSeat(s)} disabled={busy || !o || (o.hype + o.held === 0n && !o.autoActive)}>
                           {o?.autoActive ? "Stop & collect" : "Collect"}
@@ -430,11 +580,22 @@ export function EloscapePage() {
               })}
             {seats.some((s) => !s.done && (owedBy[s.account]?.elo ?? 0n) > 0n) && (
               <label className="field">
-                ELO can't enter the private vault. Send it to:
+                ELO can't enter the private vault. Swap it to private HYPE (Eloscape's pool and hook fees apply, about 4%), or send it to:
                 <input className="input" placeholder="0x… (a fresh address keeps it unlinked)" value={eloTo} onChange={(e) => setEloTo(e.target.value.trim())} />
               </label>
             )}
           </div>
+      <section className="panel howto">
+        <h2>How to play</h2>
+        <ol>
+          <li><b>Connect</b> and sign once. It opens your private account; no transaction, no gas.</li>
+          <li><b>Shield</b> HYPE into your private balance. This is the one public step, so do it ahead of time.</li>
+          <li><b>Pick blocks</b> on the grid, set your stake, and choose your privacy: <i>Seal</i> hides your blocks until the last seconds, <i>Hide my amount</i> splits your stake into standard pieces.</li>
+          <li><b>Play.</b> A fresh address plays for you; your wallet never appears. Too close to the end of a round? It goes into the next one.</li>
+          <li><b>Collect</b> after the round: winnings go back into your private balance. ELO can't enter the vault, so send it to an address you choose (a fresh one stays unlinked).</li>
+          <li><b>Withdraw</b> to any address whenever you like.</li>
+        </ol>
+      </section>
       <Footer />
     </div>
   );
