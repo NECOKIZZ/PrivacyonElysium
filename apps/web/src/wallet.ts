@@ -2,7 +2,7 @@ import { createPublicClient, createWalletClient, custom, http, type PublicClient
 import { elysium } from "@cloakely/sdk";
 
 export const RPC_URL = (import.meta.env.VITE_RPC_URL as string | undefined) ?? "https://rpc.elysium.kinetiq.xyz";
-export const RELAY_URL = (import.meta.env.VITE_RELAY_URL as string | undefined) ?? "https://keeper.oncloak.xyz";
+export const RELAY_URL = (import.meta.env.VITE_RELAY_URL as string | undefined) ?? "https://cloak-mainnet-keeper.onrender.com";
 export const CHAIN = { ...elysium, rpcUrls: { default: { http: [RPC_URL] } } };
 
 export const publicClient = createPublicClient({ chain: CHAIN, transport: http(RPC_URL), pollingInterval: 500 }) as PublicClient;

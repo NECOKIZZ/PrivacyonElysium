@@ -14,23 +14,17 @@ The repo is `NECOKIZZ/PrivacyonElysium` (public, empty). The Claude session work
 
 | Variable | Default |
 |---|---|
-| `VITE_RELAY_URL` | `https://keeper.oncloak.xyz` |
+| `VITE_RELAY_URL` | `https://cloak-mainnet-keeper.onrender.com` |
 | `VITE_RPC_URL` | `https://rpc.elysium.kinetiq.xyz` |
 
-Point the subdomain (e.g. `ecosystem.oncloak.xyz`) at the Vercel project.
+Live at `https://elysium.oncloak.xyz`.
 
-## 3. One change on Cloak's keeper (required)
+## 3. Cloak's keeper
 
-The keeper answers browser calls only from the origins in `CORS_ORIGINS`. Mainnet today:
-`https://oncloak.xyz,https://www.oncloak.xyz`. Add the new site's origin in the Render dashboard (and in Cloak's
-`render.yaml` so it stays), e.g.:
-
-```
-CORS_ORIGINS=https://oncloak.xyz,https://www.oncloak.xyz,https://ecosystem.oncloak.xyz
-```
-
-Nothing else changes on the keeper: its mainnet `GLOAM_ESCROWS` already includes the bids escrow
-(`0x0334…1758`) and the receive contract (`0xe2a8…f9e`) this site uses.
+The site relays through Cloak's mainnet keeper, `https://cloak-mainnet-keeper.onrender.com`. Checked Nov 22: it's up
+on chain 99901, its `CORS_ORIGINS` already allows `https://elysium.oncloak.xyz`, and its relay serves the bids escrow
+(`0x0334…1758`) and the receive contract (`0xe2a8…f9e`) this site uses. A new domain for the site needs adding to
+`CORS_ORIGINS` on Render.
 
 ## 4. First live test on mainnet (small amounts)
 

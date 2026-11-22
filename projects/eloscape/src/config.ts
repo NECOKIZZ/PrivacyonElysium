@@ -30,7 +30,7 @@ export const PRIVACY = {
   /** Cloak's receive addresses (CloakGloamReceive): each seat's fallback is one, never the player's wallet. */
   receive: "0xe2a8af9c67e63b7be92c3d1cc308496ba5c8ef9e" as Address,
   /** Cloak's relay: it sends every private transaction, so the player's wallet never appears. */
-  relay: "https://keeper.oncloak.xyz",
+  relay: "https://cloak-mainnet-keeper.onrender.com",
 } as const;
 
 export const HYPE = "0x0000000000000000000000000000000000000000" as Address;
