@@ -187,7 +187,7 @@ try {
   await page.locator('input[type="checkbox"]').first().check();
   await page.locator('input[type="checkbox"]').nth(1).check();
   await page.locator("label.field", { hasText: "Stake" }).locator("input").fill("0.35");
-  check(/0\.2 \+ 0\.1 \+ 0\.05/.test(await page.getByText("Plays as standard pieces").innerText()), "the page shows the pieces 0.2 + 0.1 + 0.05");
+  check(/0\.2 \+ 0\.1 \+ 0\.05/.test(await page.getByText("each from its own address").innerText()), "the page shows the pieces 0.2 + 0.1 + 0.05");
   await page.getByRole("button", { name: /Play block 21 privately/ }).click();
   const s = await waitStatus(/Played as 3 separate seats/, 1_200_000);
   check(true, s);
