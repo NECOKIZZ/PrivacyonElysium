@@ -176,7 +176,7 @@ try {
   check(Number(wonText.split(" ")[0]) > 0.5, `the page shows the win: "${wonText}"`);
   await page.screenshot({ path: `${OUT}/ui-2-won.png`, fullPage: true });
   const before = await balance();
-  await page.getByRole("button", { name: "Collect" }).first().click();
+  await page.getByRole("button", { name: "Collect", exact: true }).first().click();
   const collected = await waitStatus(/Back in your private balance/, 900_000);
   check(/ELO swapped to HYPE/.test(collected), `the seat's ELO was swapped on collect: "${collected}"`);
   for (let i = 0; i < 60 && (await balance()) <= before; i++) await sleep(2000);

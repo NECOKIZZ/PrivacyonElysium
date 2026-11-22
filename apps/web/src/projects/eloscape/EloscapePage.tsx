@@ -245,11 +245,13 @@ export function EloscapePage() {
       const list = seats.filter((s) => !s.done && due(s));
       let ok = 0;
       let failed = 0;
+      let elo = 0n;
       for (let i = 0; i < list.length; i++) {
         setStatus(`Collecting seat ${i + 1} of ${list.length}${eloMode === "swap" ? " (with its ELO)" : ""}`);
         try {
           const r = await collect(p!.core, list[i], () => {}, receiveRoute(p!.priv, p!.address), { swapElo: eloMode === "swap" });
           markCollected(list[i], r.eloSwapped > 0n);
+          elo += r.eloSwapped;
           ok++;
         } catch (e) {
           if (relayLimited(e)) {
@@ -259,7 +261,11 @@ export function EloscapePage() {
           failed++;
         }
       }
-      setStatus(list.length ? `Collected ${ok} seat${ok === 1 ? "" : "s"}${failed ? `; ${failed} failed and stay listed` : ""}.` : "Nothing to collect.");
+      setStatus(
+        list.length
+          ? `Collected ${ok} seat${ok === 1 ? "" : "s"} into your private balance${elo > 0n ? `, with ${fmt(elo)} ELO swapped to HYPE` : ""}${failed ? `; ${failed} failed and stay listed` : ""}.`
+          : "Nothing to collect.",
+      );
     });
 
   /** Keep mode: every seat's ELO to one address (that links those seats to each other on chain). */
