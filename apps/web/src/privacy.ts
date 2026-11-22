@@ -59,8 +59,22 @@ export async function unlockPrivate(wallet: WalletClient): Promise<Private> {
   return { priv, core: priv.cores[0], address: who };
 }
 
+/**
+ * The private HYPE balance. The first read asks the RPC for the vault's whole history in a few large requests (~3 s);
+ * if that fails (an RPC that limits ranges, a heavy history), it falls back to small pieces, slower but always served.
+ */
 export async function privateHype(core: GloamCore): Promise<bigint> {
-  await core.sync();
+  try {
+    await core.sync();
+  } catch (e) {
+    const small = 50_000n;
+    const c = core as unknown as { cfg: { logChunk?: bigint }; tree?: { chunk: bigint } };
+    if ((c.cfg.logChunk ?? 0n) <= small) throw e;
+    console.warn("balance read failed with large ranges, retrying in small ones:", e);
+    c.cfg.logChunk = small;
+    if (c.tree) c.tree.chunk = small;
+    await core.sync();
+  }
   return core.ownNotes(HYPE).reduce((a, n) => a + n.amount, 0n);
 }
 

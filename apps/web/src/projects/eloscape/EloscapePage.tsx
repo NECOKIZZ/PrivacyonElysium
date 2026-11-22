@@ -68,7 +68,9 @@ export function EloscapePage() {
       setBal(await privateHype(p.core));
       setSyncErr("");
     } catch (e) {
-      setSyncErr("Couldn't read your balance. Retrying…");
+      const why = e instanceof Error ? (e as { shortMessage?: string }).shortMessage ?? e.message.split("\n")[0] : String(e);
+      console.error("balance read failed:", e);
+      setSyncErr(`Couldn't read your balance (${why.slice(0, 160)}). Retrying…`);
       return;
     }
     const list = book.load();
