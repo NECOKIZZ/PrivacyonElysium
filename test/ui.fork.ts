@@ -194,6 +194,35 @@ try {
   check(true, s);
   await page.screenshot({ path: `${OUT}/ui-3-split.png`, fullPage: true });
 
+  log("Random Auto: 3 random blocks each round, 0.01 per block, 3 rounds");
+  await page.getByRole("button", { name: "Auto", exact: true }).click();
+  await page.getByRole("button", { name: "Random each round" }).click();
+  await page.locator(".chips button", { hasText: /^3$/ }).click();
+  await page.getByLabel("Amount per block").fill("0.01");
+  await page.getByLabel("Number of rounds").fill("3");
+  check(/Eloscape picks 3 blocks each round/.test(await page.locator(".board-actions .muted").innerText()), "the grid says Eloscape picks 3 blocks each round");
+  check(/3, random each round/.test(await page.locator(".summary").innerText()), "the summary shows 3 random blocks per round");
+  await page.getByRole("button", { name: "Start Auto for 3 rounds" }).click();
+  await waitStatus(/Auto is running from seat/, 900_000);
+  const autoRow = page.locator(".seat", { hasText: "random block" }).first();
+  await autoRow.waitFor({ timeout: 60_000 });
+  const autoSeat = ((await autoRow.locator("a").getAttribute("href")) ?? "").split("/").pop() as `0x${string}`;
+  const cfg = await pub.readContract({ address: ELOSCAPE.game, abi: GAME_ABI, functionName: "standing", args: [autoSeat] });
+  // standing(): active, isRandom, mask, phase, width, numBlocks, amountPerBlock, perRoundSpend, balance, startRound, endRound, lastClaimedRound
+  check(cfg[0] && cfg[1] && cfg[4] === 3 && cfg[6] === 10n ** 16n, `on chain: seat ${autoSeat.slice(0, 10)}… runs random Auto, width 3, 0.01 per block, phase ${cfg[3]}`);
+  check(cfg[10] - cfg[9] + 1n === 3n || cfg[10] - cfg[9] === 3n, `on chain: Auto covers 3 rounds (${cfg[9]} to ${cfg[10]})`);
+  // let two rounds settle, then stop and collect what's left
+  const r0 = (await liveRound(pub)).id;
+  for (let i = 0; i < 300 && (await liveRound(pub)).id < r0 + 2n; i++) await sleep(1000);
+  const beforeStop = await balance();
+  await autoRow.getByRole("button", { name: /Stop & collect|Collect/ }).click();
+  await waitStatus(/Back in your private balance/, 900_000);
+  const after = await pub.readContract({ address: ELOSCAPE.game, abi: GAME_ABI, functionName: "standing", args: [autoSeat] });
+  check(!after[0], "Auto stopped on chain");
+  for (let i = 0; i < 60 && (await balance()) <= beforeStop; i++) await sleep(2000);
+  check((await balance()) > beforeStop, `what was left came back privately: ${beforeStop} → ${await balance()}`);
+  await page.screenshot({ path: `${OUT}/ui-4-random-auto.png`, fullPage: true });
+
   const froms = await Promise.all(relayed.map((h) => pub.getTransaction({ hash: h }).then((t) => t.from.toLowerCase())));
   check(froms.every((f) => f === relayer.account.address.toLowerCase()), `all ${relayed.length} private transactions went through the relay`);
   const inputs = await Promise.all(relayed.map((h) => pub.getTransaction({ hash: h }).then((t) => t.input.toLowerCase())));
