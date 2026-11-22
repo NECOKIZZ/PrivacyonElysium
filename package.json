@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "dev": "npm run dev -w apps/web",
-    "build": "npm run build -w apps/web",
+    "build": "npm run build -w apps/web && rm -rf dist && cp -r apps/web/dist dist",
     "typecheck": "tsc -p projects/eloscape --noEmit",
     "test:fork": "NODE_USE_ENV_PROXY=1 tsx test/eloscape.fork.ts",
     "test:ui": "mkdir -p test/shots && NODE_USE_ENV_PROXY=1 NODE_PATH=$(npm root -g) tsx test/ui.fork.ts"
