@@ -38,6 +38,17 @@ const seatParams = async (o: SeatOptions, amount: bigint, exclude?: Set<bigint>)
   exclude,
 });
 
+/** Gloam's vault keeps this much when a note leaves it (read live with exitFeeBps; 0.5% since launch). */
+export const GLOAM_EXIT_FEE_BPS = 50n;
+
+/** The note to spend so that exactly `net` reaches the seat after Gloam's exit fee (rounded as the vault rounds). */
+export function grossFor(net: bigint, feeBps: bigint = GLOAM_EXIT_FEE_BPS): bigint {
+  const arrived = (g: bigint) => g - ((g / 10_000n) * feeBps + ((g % 10_000n) * feeBps) / 10_000n);
+  let g = (net * 10_000n + (10_000n - feeBps) - 1n) / (10_000n - feeBps);
+  while (arrived(g) < net) g++;
+  return g;
+}
+
 /** The deploy value: what reached the seat, rounded down to equal parts per block (the game splits it equally). */
 export function playValue(arrived: bigint, blocks: number[]): bigint {
   const n = BigInt(blocks.length);

@@ -91,7 +91,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 40px; color: var(--m
 
 /* project page */
 .layout { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px; padding: 10px 0 20px; }
-@media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+@media (max-width: 860px) { .layout { grid-template-columns: minmax(0, 1fr); } }
 .panel { border: 1px solid var(--line); background: var(--card); border-radius: var(--r-lg); padding: 18px; }
 .panel + .panel { margin-top: 16px; }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -164,3 +164,40 @@ code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
 .seg.small button { padding: 5px 11px; font-size: 13px; }
 .seats-sum { padding: 8px 0 4px; }
 .field > span { display: block; margin-bottom: 4px; }
+/* play panel, in Cloak's swap style */
+.play .swap-box { margin-top: 16px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-md); padding: 14px 16px 16px; transition: border-color 0.2s; }
+.play .swap-box:focus-within { border-color: var(--signal-line); }
+.swap-box .k { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--mute); }
+.swap-box .k > span:first-child { font: 500 10.5px/1.3 var(--font-body); letter-spacing: 0.09em; text-transform: uppercase; }
+.swap-box .amt { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.swap-box input { flex: 1; min-width: 0; border: 0; background: transparent; outline: none; color: var(--text); font: 300 38px/1.1 var(--font-display); letter-spacing: -0.03em; padding: 0; }
+.swap-box input::placeholder { color: var(--faint); }
+.token-sel { display: inline-flex; align-items: center; gap: 8px; height: 40px; padding: 0 14px 0 6px; border-radius: 999px; background: var(--card); border: 1px solid var(--line); font: 500 14px var(--font-body); flex: none; }
+.stepper { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding: 10px 4px; font-size: 14px; color: var(--soft); }
+.stepper .ctl { display: inline-flex; align-items: center; border: 1px solid var(--line-strong); border-radius: 999px; overflow: hidden; }
+.stepper .ctl button { border: 0; background: transparent; width: 36px; height: 34px; cursor: pointer; font-size: 18px; color: var(--soft); }
+.stepper .ctl button:hover { background: var(--card-2); }
+.stepper .ctl input { width: 54px; border: 0; background: transparent; text-align: center; font: 500 15px var(--font-num); color: var(--text); outline: none; }
+.switches { margin-top: 10px; }
+.switch { display: flex; justify-content: space-between; align-items: center; gap: 14px; padding: 10px 4px; border-top: 1px solid var(--line); cursor: pointer; }
+.switch:first-child { border-top: 0; }
+.switch b { display: block; font-weight: 550; font-size: 14.5px; }
+.switch em { font-style: normal; color: var(--mute); font-size: 13px; }
+.switch input { appearance: none; flex: none; width: 38px; height: 22px; border-radius: 999px; background: var(--line-strong); position: relative; cursor: pointer; transition: background 0.2s; margin: 0; }
+.switch input::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--bg); transition: transform 0.2s var(--ease); }
+.switch input:checked { background: var(--signal); }
+.switch input:checked::after { transform: translateX(16px); }
+.play .summary { margin-top: 12px; padding: 12px 14px; border-radius: var(--r-sm); background: var(--card-2); display: grid; gap: 7px; font-size: 13.5px; }
+.kv { display: flex; justify-content: space-between; gap: 14px; color: var(--mute); }
+.kv > span:last-child { color: var(--text); text-align: right; font-family: var(--font-num); }
+.kv.total { border-top: 1px solid var(--line-strong); padding-top: 8px; margin-top: 2px; font-weight: 600; }
+.kv.total > span { color: var(--text); }
+.kv.seen-row > span:last-child { font-family: var(--font-body); color: var(--soft); max-width: 70%; }
+.btn.big { width: 100%; margin-top: 14px; padding: 13px 16px; font-size: 15.5px; }
+.board-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
+.board-actions button { border: 0; background: none; color: var(--mute); font-weight: 550; font-size: 13.5px; cursor: pointer; padding: 4px 8px; border-radius: 8px; }
+.board-actions button:hover:not(:disabled) { color: var(--text); background: var(--card-2); }
+.board-actions button:disabled { opacity: 0.4; cursor: default; }
+.board-actions + .board { margin-top: 6px; }
+.swap-box input { width: 100%; }
+.layout > div { min-width: 0; }

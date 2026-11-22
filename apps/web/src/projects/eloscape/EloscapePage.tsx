@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatEther, isAddress, parseEther, type Address, type WalletClient } from "viem";
 import {
-  ELOSCAPE, GRID, MIN_DEPLOY, SEAL_LEAD_SECONDS, ELO_MIN_SWAP, collect, liveRound, owed, privateAuto, privatePlay, sealedPlay, sendSeatElo, splitPlay, splitSizes,
+  ELOSCAPE, GRID, MIN_DEPLOY, SEAL_LEAD_SECONDS, ELO_MIN_SWAP, GLOAM_EXIT_FEE_BPS, collect, grossFor, liveRound, owed, privateAuto, privatePlay, sealedPlay, sendSeatElo, splitPlay, splitSizes,
   type LiveRound, type Seat,
 } from "@privacy-for-elysium/eloscape";
 import { Footer, REPO, SDK_DOCS, TopBar, go } from "../../pages/chrome";
@@ -111,8 +111,8 @@ export function EloscapePage() {
   const [bal, setBal] = useState<bigint | null>(null);
   const [blocks, setBlocks] = useState<number[]>([]);
   const [mode, setMode] = useState<"once" | "auto">("once");
-  const [amount, setAmount] = useState("0.5");
   const [perBlock, setPerBlock] = useState("0.01");
+  const [rounds, setRounds] = useState(10);
   const [sealed, setSealed] = useState(true);
   const [split, setSplit] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -289,11 +289,18 @@ export function EloscapePage() {
   const left = round ? Math.max(0, round.endTime - now) : 0;
   const progress = round ? Math.min(100, ((now - round.startTime) / Math.max(1, round.endTime - round.startTime)) * 100) : 0;
 
-  let stake = 0n;
+  let per = 0n;
   try {
-    stake = parseEther(amount || "0");
+    per = parseEther(perBlock || "0");
   } catch {}
-  const pieces = split ? splitSizes(stake) : null;
+  const nBlocks = BigInt(blocks.length);
+  const perRound = per * nBlocks;
+  const net = mode === "auto" ? perRound * BigInt(Math.max(1, rounds)) : perRound; // what Eloscape receives
+  const pieces = mode === "once" && split ? splitSizes(net) : null;
+  // what leaves the private balance: the play plus Gloam's exit fee (per piece when split)
+  const stake = pieces ? pieces.pieces.reduce((a, x) => a + x, 0n) : net > 0n ? grossFor(net) : 0n;
+  const exitFee = pieces ? (stake * GLOAM_EXIT_FEE_BPS) / 10_000n : stake - net;
+  const tooSmall = per > 0n && per < MIN_DEPLOY;
 
   const play = () => {
     if (!p || !wallet) return;
@@ -302,12 +309,12 @@ export function EloscapePage() {
     const on = (s: string) => setStatus(s);
     if (mode === "auto") {
       return run("Starting Private Auto", async () => {
-        const label = `Auto · ${blockWord(blocks)} · ${perBlock}/block`;
-        const r = await privateAuto(p.core, { amount: stake, blocks, perBlock: parseEther(perBlock), fallbackTo, onSeat: (s) => remember([s], label) }, on);
+        const label = `Auto · ${blockWord(blocks)} · ${perBlock}/block · ${rounds} rounds`;
+        const r = await privateAuto(p.core, { amount: stake, blocks, perBlock: per, fallbackTo, onSeat: (s) => remember([s], label) }, on);
         setStatus(`Auto is running from seat ${short(r.seat.account)}.`);
       });
     }
-    const label = `${split ? "Split" : "Play"}${sealed ? " · sealed" : ""} · ${blockWord(blocks)} · ${amount} HYPE`;
+    const label = `${split ? "Split" : "Play"}${sealed ? " · sealed" : ""} · ${blockWord(blocks)} · ${perBlock}/block`;
     const onSeat = (s: Seat) => remember([s], label);
     return run("Preparing your private play", async () => {
       if (split) {
@@ -352,7 +359,7 @@ export function EloscapePage() {
     { hype: 0n, elo: 0n },
   );
   const ready = !!p;
-  const canPlay = ready && !busy && blocks.length > 0 && stake > 0n && (mode === "once" ? (bal ?? 0n) >= stake : (bal ?? 0n) >= stake);
+  const canPlay = ready && !busy && blocks.length > 0 && stake > 0n && !tooSmall && (bal ?? 0n) >= stake;
 
   return (
     <div className="wrap">
@@ -420,6 +427,14 @@ export function EloscapePage() {
             </div>
             <div className="timer">
               <i style={{ width: `${progress}%` }} />
+            </div>
+            <div className="board-actions">
+              <span className="muted small">{blocks.length ? `${blocks.length} selected` : "Select blocks"}</span>
+              <span>
+                <button onClick={() => setBlocks([Math.floor(Math.random() * GRID)])}>Random</button>
+                <button onClick={() => setBlocks(Array.from({ length: GRID }, (_, i) => i))}>All</button>
+                <button onClick={() => setBlocks([])} disabled={!blocks.length}>Clear</button>
+              </span>
             </div>
             <div className="board">
               {Array.from({ length: GRID }, (_, b) => (
@@ -493,7 +508,7 @@ export function EloscapePage() {
             )}
           </div>
 
-          <div className="panel">
+          <div className="panel play">
             <div className="row">
               <h2 style={{ margin: 0 }}>Play privately</h2>
               <div className="seg">
@@ -505,64 +520,85 @@ export function EloscapePage() {
                 </button>
               </div>
             </div>
-            <label className="field">
-              {mode === "auto" ? "Fund Auto with (HYPE)" : "Stake (HYPE)"}
-              <input className="input" value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" />
-            </label>
+
+            <div className="swap-box">
+              <div className="k">
+                <span>Amount per block</span>
+                <span>{ready && bal !== null ? `Private ${fmt(bal)} HYPE` : ""}</span>
+              </div>
+              <div className="amt">
+                <input value={perBlock} onChange={(e) => setPerBlock(e.target.value)} inputMode="decimal" placeholder="0" aria-label="Amount per block" />
+                <span className="token-sel">
+                  <img src="/tokens/hype.svg" alt="" width={26} height={26} />
+                  HYPE
+                </span>
+              </div>
+            </div>
+
             {mode === "auto" && (
-              <label className="field">
-                Per block, per round (HYPE)
-                <input className="input" value={perBlock} onChange={(e) => setPerBlock(e.target.value)} inputMode="decimal" />
-              </label>
+              <div className="stepper">
+                <span>Rounds</span>
+                <span className="ctl">
+                  <button onClick={() => setRounds(Math.max(1, rounds - 1))} aria-label="Fewer rounds">−</button>
+                  <input value={rounds} onChange={(e) => setRounds(Math.max(1, Math.floor(Number(e.target.value.replace(/\D/g, "")) || 1)))} inputMode="numeric" aria-label="Number of rounds" />
+                  <button onClick={() => setRounds(rounds + 1)} aria-label="More rounds">+</button>
+                </span>
+              </div>
             )}
+
             {mode === "once" && (
-              <>
-                <label className="toggle">
-                  <input type="checkbox" checked={sealed} onChange={(e) => setSealed(e.target.checked)} />
+              <div className="switches">
+                <label className="switch">
                   <span>
                     <b>Seal my blocks</b>
                     <em>Sent {SEAL_LEAD_SECONDS}s before close. Keep this tab open.</em>
                   </span>
+                  <input type="checkbox" checked={sealed} onChange={(e) => setSealed(e.target.checked)} />
                 </label>
-                <label className="toggle">
-                  <input type="checkbox" checked={split} onChange={(e) => setSplit(e.target.checked)} />
+                <label className="switch">
                   <span>
-                    <b>Also hide my amount</b>
+                    <b>Hide my amount</b>
                     <em>
-                      Plays as {pieces && pieces.pieces.length ? pieces.pieces.map((x) => formatEther(x)).join(" + ") : "standard pieces"}, each from its own address
-                      {pieces && pieces.left > 0n ? ` (${formatEther(pieces.left)} stays in your balance)` : ""}. Smallest piece: 0.001 HYPE.
+                      {pieces && pieces.pieces.length
+                        ? `Plays as ${pieces.pieces.map((x) => formatEther(x)).join(" + ")}, one address each.`
+                        : "Plays as standard pieces, one address each (from 0.001 HYPE)."}
                     </em>
                   </span>
+                  <input type="checkbox" checked={split} onChange={(e) => setSplit(e.target.checked)} />
                 </label>
-              </>
+              </div>
             )}
-            <p className="muted small" style={{ marginBottom: 0 }}>
-              Min {formatEther(MIN_DEPLOY)} HYPE per block.
-            </p>
-            <div className="seen">
-              <div>
-                <span className="muted small">Others see</span>
-                <p>{view.seen}</p>
-              </div>
-              <div>
-                <span className="muted small">Hidden</span>
-                <p>{view.hidden}</p>
-              </div>
+
+            <div className="summary">
+              <div className="kv"><span>Blocks</span><span>{blocks.length || "—"}</span></div>
+              <div className="kv"><span>Total per round</span><span>{perRound > 0n ? `${fmt(perRound)} HYPE` : "—"}</span></div>
+              {mode === "auto" && <div className="kv"><span>Rounds</span><span>{rounds}</span></div>}
+              <div className="kv"><span>Gloam exit fee (0.5%)</span><span>{stake > 0n ? `${fmt(exitFee, 6)} HYPE` : "—"}</span></div>
+              <div className="kv total"><span>From your private balance</span><span>{stake > 0n ? `${fmt(stake)} HYPE` : "—"}</span></div>
+              <div className="kv seen-row"><span>Others see</span><span>{view.seen}</span></div>
+              <div className="kv seen-row"><span>Hidden</span><span>{view.hidden}</span></div>
             </div>
-            <div style={{ marginTop: 14 }}>
-              {ready ? (
-                <button className="btn primary" style={{ width: "100%" }} disabled={!canPlay} onClick={play}>
-                  {busy ? "Working…" : mode === "auto" ? "Start Auto privately" : `Play ${blocks.length ? `block${blocks.length > 1 ? "s" : ""} ${blocks.map((b) => b + 1).join(", ")}` : ""} privately`}
-                </button>
-              ) : (
-                <button className="btn primary" style={{ width: "100%" }} onClick={connect} disabled={busy}>
-                  Connect
-                </button>
-              )}
-            </div>
-            <div className="status">
-              {error ? <span className="err">{error}</span> : status}
-            </div>
+
+            {ready ? (
+              <button className="btn primary big" disabled={!canPlay} onClick={play}>
+                {busy
+                  ? "Working…"
+                  : !blocks.length
+                    ? "Select blocks"
+                    : tooSmall
+                      ? `Min ${formatEther(MIN_DEPLOY)} HYPE per block`
+                      : (bal ?? 0n) < stake
+                        ? "Not enough private HYPE"
+                        : mode === "auto"
+                          ? `Start Auto for ${rounds} rounds`
+                          : `Play ${blockWord(blocks)}`}
+              </button>
+            ) : (
+              <button className="btn primary big" onClick={connect} disabled={busy}>
+                Connect
+              </button>
+            )}
+            <div className="status">{error ? <span className="err">{error}</span> : status}</div>
           </div>
         </div>
       </div>
@@ -642,7 +678,7 @@ export function EloscapePage() {
         <ol>
           <li><b>Connect</b> and sign once. It opens your private account; no transaction, no gas.</li>
           <li><b>Shield</b> HYPE into your private balance. This is the one public step, so do it ahead of time.</li>
-          <li><b>Pick blocks</b> on the grid, set your stake, and choose your privacy: <i>Seal</i> hides your blocks until the last seconds, <i>Hide my amount</i> splits your stake into standard pieces.</li>
+          <li><b>Pick blocks</b> on the grid (or Random / All), set the amount per block (and rounds, for Auto), and choose your privacy: <i>Seal</i> hides your blocks until the last seconds, <i>Hide my amount</i> splits your stake into standard pieces.</li>
           <li><b>Play.</b> A fresh address plays for you; your wallet never appears. Too close to the end of a round? It goes into the next one.</li>
           <li><b>Collect</b> after the round: winnings go back into your private balance.</li>
           <li>

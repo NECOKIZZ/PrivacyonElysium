@@ -156,10 +156,10 @@ try {
 
   log("Play 0.5 on block 8, not sealed, forced win");
   await page.locator(".cell").nth(7).click();
-  await page.locator('input[type="checkbox"]').first().uncheck();
-  await page.locator("label.field", { hasText: "Stake" }).locator("input").fill("0.5");
+  await page.locator('.switch input').first().uncheck();
+  await page.getByLabel("Amount per block").fill("0.5");
   forcedBlock = 7;
-  await page.getByRole("button", { name: /Play block 8 privately/ }).click();
+  await page.getByRole("button", { name: "Play block 8", exact: true }).click();
   await waitStatus(/Played from seat/, 900_000);
   check(true, "played from a fresh seat");
   await page.locator(".seat").first().waitFor();
@@ -185,11 +185,11 @@ try {
   log("Sealed + split: 0.35 on block 21");
   await page.locator(".cell").nth(7).click(); // unselect 8
   await page.locator(".cell").nth(20).click();
-  await page.locator('input[type="checkbox"]').first().check();
-  await page.locator('input[type="checkbox"]').nth(1).check();
-  await page.locator("label.field", { hasText: "Stake" }).locator("input").fill("0.35");
-  check(/0\.2 \+ 0\.1 \+ 0\.05/.test(await page.getByText("each from its own address").innerText()), "the page shows the pieces 0.2 + 0.1 + 0.05");
-  await page.getByRole("button", { name: /Play block 21 privately/ }).click();
+  await page.locator('.switch input').first().check();
+  await page.locator('.switch input').nth(1).check();
+  await page.getByLabel("Amount per block").fill("0.35");
+  check(/0\.2 \+ 0\.1 \+ 0\.05/.test(await page.getByText("one address each").innerText()), "the page shows the pieces 0.2 + 0.1 + 0.05");
+  await page.getByRole("button", { name: "Play block 21", exact: true }).click();
   const s = await waitStatus(/Played as 3 separate seats/, 1_200_000);
   check(true, s);
   await page.screenshot({ path: `${OUT}/ui-3-split.png`, fullPage: true });
