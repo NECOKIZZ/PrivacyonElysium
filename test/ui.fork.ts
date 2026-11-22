@@ -165,7 +165,7 @@ try {
   await page.locator(".seat").first().waitFor();
   check((await page.locator(".seat").count()) >= 1, "the seat is listed under Your seats");
   // wait for settlement, then for the page to show winnings
-  const won = page.locator(".seat").first().getByText(/HYPE to collect/);
+  const won = page.locator(".seat").first().locator(".num");
   for (let i = 0; i < 120; i++) {
     await page.waitForTimeout(5000);
     const t = await won.innerText().catch(() => "");
