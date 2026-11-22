@@ -592,9 +592,21 @@ export function EloscapePage() {
           <li><b>Shield</b> HYPE into your private balance. This is the one public step, so do it ahead of time.</li>
           <li><b>Pick blocks</b> on the grid, set your stake, and choose your privacy: <i>Seal</i> hides your blocks until the last seconds, <i>Hide my amount</i> splits your stake into standard pieces.</li>
           <li><b>Play.</b> A fresh address plays for you; your wallet never appears. Too close to the end of a round? It goes into the next one.</li>
-          <li><b>Collect</b> after the round: winnings go back into your private balance. ELO can't enter the vault, so send it to an address you choose (a fresh one stays unlinked).</li>
+          <li><b>Collect</b> after the round: winnings go back into your private balance.</li>
+          <li>
+            <b>ELO</b> can't enter the vault, so each seat keeps it until you choose: <i>ELO → private HYPE</i> swaps it in ELO's pool and
+            puts the HYPE in your private balance (about 4% in pool and Eloscape fees), or <i>Send ELO</i> sends it to an address you choose
+            (a fresh one stays unlinked).
+          </li>
           <li><b>Withdraw</b> to any address whenever you like.</li>
         </ol>
+        <h3 style={{ marginTop: 18 }}>Solo and split blocks</h3>
+        <p className="muted" style={{ margin: "4px 0 0", fontSize: 14.5 }}>
+          Each round, Eloscape makes some blocks <b>solo</b> and the rest <b>split</b>. Everyone on the winning block shares the HYPE pot either
+          way; the round's ELO is what differs. On a <b>split</b> block, ELO is shared by everyone on it, in proportion to their stake. On a{" "}
+          <b>solo</b> block, all of it goes to <b>one</b> miner, drawn by stake: a bigger stake means better odds, not a guaranteed share. A
+          solo-block ELO prize is paid with a signature from Eloscape's server.
+        </p>
       </section>
       <Footer />
     </div>
