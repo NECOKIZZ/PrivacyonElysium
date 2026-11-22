@@ -5,7 +5,7 @@ import {
   type LiveRound, type Seat,
 } from "@privacy-for-elysium/eloscape";
 import { Footer, REPO, SDK_DOCS, TopBar, go } from "../../pages/chrome";
-import { connectWallet, publicClient } from "../../wallet";
+import { connectWallet, publicClient, visible } from "../../wallet";
 import { fallbackFor, privateHype, seatBook, sweepFallbacks, unlockPrivate, type Private } from "../../privacy";
 
 const EXPLORER = "https://elysium.kinetiq.xyz/explorer/address/";
@@ -24,6 +24,7 @@ function useRound() {
   useEffect(() => {
     let live = true;
     const tick = async () => {
+      if (!visible()) return;
       try {
         const [r, b] = await Promise.all([liveRound(publicClient), publicClient.getBlock()]);
         skew.current = Number(b.timestamp) - Math.floor(Date.now() / 1000);
@@ -31,7 +32,7 @@ function useRound() {
       } catch {}
     };
     tick();
-    const a = setInterval(tick, 2500);
+    const a = setInterval(tick, 5000);
     const c = setInterval(() => setNow(Math.floor(Date.now() / 1000) + skew.current), 500);
     return () => ((live = false), clearInterval(a), clearInterval(c));
   }, []);
@@ -63,28 +64,30 @@ export function EloscapePage() {
 
   const book = useMemo(() => (p ? seatBook(p.address) : null), [p]);
   const refresh = useCallback(async () => {
-    if (!p || !book) return;
+    if (!p || !book || !visible()) return;
     try {
       setBal(await privateHype(p.core));
       setSyncErr("");
     } catch (e) {
       const why = e instanceof Error ? (e as { shortMessage?: string }).shortMessage ?? e.message.split("\n")[0] : String(e);
       console.error("balance read failed:", e);
-      setSyncErr(`Couldn't read your balance (${why.slice(0, 160)}). Retrying…`);
+      setSyncErr(
+        /429|too many/i.test(why) ? "The public RPC is busy (rate limit). Retrying shortly…" : `Couldn't read your balance (${why.slice(0, 160)}). Retrying…`,
+      );
       return;
     }
     const list = book.load();
     setSeats(list);
     const out: typeof owedBy = {};
     for (const s of list.filter((x) => !x.done)) {
-      const [o, held] = await Promise.all([owed(publicClient, s.account), publicClient.getBalance({ address: s.account })]);
-      out[s.account] = { ...o, held };
+      const o = await owed(publicClient, s.account); // includes the seat's own balance (held)
+      out[s.account] = o;
     }
     setOwedBy(out);
   }, [p, book]);
   useEffect(() => {
     refresh();
-    const t = setInterval(refresh, 15000);
+    const t = setInterval(refresh, 30000);
     return () => clearInterval(t);
   }, [refresh]);
 

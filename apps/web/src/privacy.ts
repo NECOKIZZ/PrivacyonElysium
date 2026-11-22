@@ -69,6 +69,8 @@ export async function privateHype(core: GloamCore): Promise<bigint> {
   } catch (e) {
     const small = 50_000n;
     const c = core as unknown as { cfg: { logChunk?: bigint }; tree?: { chunk: bigint } };
+    // a rate limit isn't a range problem: smaller pieces would only mean more requests. Let the next refresh retry.
+    if (/429|too many|rate limit/i.test(String((e as { details?: string })?.details ?? "") + String(e))) throw e;
     if ((c.cfg.logChunk ?? 0n) <= small) throw e;
     console.warn("balance read failed with large ranges, retrying in small ones:", e);
     c.cfg.logChunk = small;

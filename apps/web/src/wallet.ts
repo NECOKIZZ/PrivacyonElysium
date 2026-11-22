@@ -5,7 +5,19 @@ export const RPC_URL = (import.meta.env.VITE_RPC_URL as string | undefined) ?? "
 export const RELAY_URL = (import.meta.env.VITE_RELAY_URL as string | undefined) ?? "https://cloak-mainnet-keeper.onrender.com";
 export const CHAIN = { ...elysium, rpcUrls: { default: { http: [RPC_URL] } } };
 
-export const publicClient = createPublicClient({ chain: CHAIN, transport: http(RPC_URL), pollingInterval: 500 }) as PublicClient;
+/**
+ * Gentle on the public RPC, which rate-limits (429): reads made together go out as one HTTP request (JSON-RPC batch)
+ * and contract reads as one multicall; a 429 is retried with growing waits instead of straight away.
+ */
+export const publicClient = createPublicClient({
+  chain: CHAIN,
+  transport: http(RPC_URL, { batch: { batchSize: 40, wait: 25 }, retryCount: 6, retryDelay: 1500 }),
+  batch: { multicall: { wait: 25 } },
+  pollingInterval: 2000,
+}) as PublicClient;
+
+/** True while the page is on screen: background tabs don't poll. */
+export const visible = () => typeof document === "undefined" || document.visibilityState !== "hidden";
 
 type Eip1193 = { request(a: { method: string; params?: unknown[] }): Promise<unknown> };
 const injected = () => (globalThis as unknown as { ethereum?: Eip1193 }).ethereum;
