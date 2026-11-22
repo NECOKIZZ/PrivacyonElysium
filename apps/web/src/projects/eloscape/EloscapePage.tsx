@@ -455,30 +455,6 @@ export function EloscapePage() {
               <span className="muted small">
                 {randomAuto ? `Eloscape picks ${width} block${width > 1 ? "s" : ""} each round` : blocks.length ? `${blocks.length} selected · ${STRAT_LABEL[strategyOf(blocks) ?? "custom"]}` : "Select blocks"}
               </span>
-              <span className="strat-wrap">
-                <button onClick={() => setStratOpen(!stratOpen)} aria-expanded={stratOpen} disabled={randomAuto}>
-                  Strategies ▾
-                </button>
-                <button onClick={() => setBlocks(randomBlocks(blocks.length || 1))} disabled={randomAuto} title="Pick random blocks (same number as selected)">
-                  Random
-                </button>
-                <button onClick={() => setBlocks([])} disabled={!blocks.length || randomAuto}>
-                  Clear
-                </button>
-                {stratOpen && (
-                  <>
-                    <div className="menu-scrim" onClick={() => setStratOpen(false)} />
-                    <div className="menu strat-menu">
-                      {STRATEGIES.map((k) => (
-                        <button key={k} className={strategyOf(blocks) === k ? "on" : ""} onClick={() => (setBlocks(strategyBlocks(k)), setStratOpen(false))}>
-                          <MiniGrid blocks={strategyBlocks(k)} />
-                          {STRAT_LABEL[k]}
-                        </button>
-                      ))}
-                    </div>
-                  </>
-                )}
-              </span>
             </div>
             <div className={`board ${randomAuto ? "dim" : ""}`}>
               {Array.from({ length: GRID }, (_, b) => (
@@ -580,18 +556,35 @@ export function EloscapePage() {
             </div>
 
             {!randomAuto && (
-              <div className="strat-row">
-                <span>Strategy</span>
-                <span className="chips">
-                  {STRATEGIES.map((k) => (
-                    <button key={k} className={strategyOf(blocks) === k ? "on" : ""} onClick={() => setBlocks(strategyBlocks(k))} title={`${STRAT_LABEL[k]}: ${strategyBlocks(k).length} blocks`}>
-                      <MiniGrid blocks={strategyBlocks(k)} />
-                      {STRAT_LABEL[k]}
-                    </button>
-                  ))}
-                  <button onClick={() => setBlocks(randomBlocks(blocks.length || 1))} title="Random blocks (same number as selected)">
-                    Random
+              <div className="stepper">
+                <span>Blocks</span>
+                <span className="strat-wrap">
+                  <button className="strat-btn" onClick={() => setStratOpen(!stratOpen)} aria-expanded={stratOpen}>
+                    {blocks.length ? `${STRAT_LABEL[strategyOf(blocks) ?? "custom"]} · ${blocks.length}` : "Strategies"} ▾
                   </button>
+                  {stratOpen && (
+                    <>
+                      <div className="menu-scrim" onClick={() => setStratOpen(false)} />
+                      <div className="menu strat-menu">
+                        {STRATEGIES.map((k) => (
+                          <button key={k} className={strategyOf(blocks) === k ? "on" : ""} onClick={() => (setBlocks(strategyBlocks(k)), setStratOpen(false))}>
+                            <MiniGrid blocks={strategyBlocks(k)} />
+                            {STRAT_LABEL[k]}
+                          </button>
+                        ))}
+                        <button onClick={() => (setBlocks(randomBlocks(blocks.length || 1)), setStratOpen(false))}>
+                          <MiniGrid blocks={[]} />
+                          Random
+                        </button>
+                        {blocks.length > 0 && (
+                          <button onClick={() => (setBlocks([]), setStratOpen(false))}>
+                            <MiniGrid blocks={[]} />
+                            Clear
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  )}
                 </span>
               </div>
             )}
