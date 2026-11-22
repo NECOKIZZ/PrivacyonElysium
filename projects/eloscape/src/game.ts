@@ -65,7 +65,7 @@ export async function owed(pub: PublicClient, who: Address, game: Address = ELOS
   const [after, held, elo, auto] = await Promise.all([
     collectableHype(pub, who, game),
     pub.getBalance({ address: who }),
-    pub.readContract({ address: game, abi: GAME_ABI, functionName: "userUnclaimedELO", args: [who] }),
+    collectableElo(pub, who, game),
     pub.readContract({ address: game, abi: GAME_ABI, functionName: "standing", args: [who] }),
   ]);
   // hype: what claimETH would pay now (credited or not); held: already in the address
@@ -83,6 +83,21 @@ export async function collectableHype(pub: PublicClient, who: Address, game: Add
   const g = game.slice(2).toLowerCase();
   // calldata empty: accept HYPE (the game's payout). Otherwise: call game.claimETH(), ignore the result, return selfbalance.
   const code = ("0x" + "3615" + "603b" + "57" + "63" + sel + "60e01b" + "600052" + "6000600060046000600073" + g + "5af150" + "47600052" + "60206000f3" + "5b00") as Hex;
+  const r = await pub.call({ to: who, data: "0x01", stateOverride: [{ address: who, code }] });
+  return r.data && r.data !== "0x" ? hexToBigInt(r.data) : 0n;
+}
+
+/**
+ * ELO `who` would hold right after claimELO(): what it holds plus what the game owes it, credited or not (net of the
+ * game's realizing fee). Same read-only probe as collectableHype: calls claimELO, then returns ELO.balanceOf(itself).
+ */
+export async function collectableElo(pub: PublicClient, who: Address, game: Address = ELOSCAPE.game, elo: Address = ELOSCAPE.elo): Promise<bigint> {
+  const claim = toFunctionSelector("claimELO()").slice(2);
+  const bal = toFunctionSelector("balanceOf(address)").slice(2);
+  const g = game.slice(2).toLowerCase();
+  const e = elo.slice(2).toLowerCase();
+  const code = ("0x" + "3615" + "6066" + "57" + "63" + claim + "60e01b" + "600052" + "6000600060046000600073" + g + "5af150" +
+    "63" + bal + "60e01b" + "600052" + "30600452" + "6020600060246000" + "73" + e + "5afa50" + "60206000f3" + "5b00") as Hex;
   const r = await pub.call({ to: who, data: "0x01", stateOverride: [{ address: who, code }] });
   return r.data && r.data !== "0x" ? hexToBigInt(r.data) : 0n;
 }

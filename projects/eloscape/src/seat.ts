@@ -127,6 +127,8 @@ export async function returnSeat(core: GloamCore, seat: Seat, onStatus: Status =
 /** Send the seat's ELO to an address of the player's choice (ELO can't go into Gloam's vault). */
 export async function sendSeatElo(core: GloamCore, seat: Seat, to: Address, elo: Address = ELOSCAPE.elo): Promise<Hex | null> {
   const pub = core.config.publicClient as PublicClient;
+  // ELO the game still owes the seat is claimed into it first (claimELO), then sent on
+  await seatCall(core, seat, { target: ELOSCAPE.game, data: encodeFunctionData({ abi: parseAbi(["function claimELO()"]), functionName: "claimELO" }) }).catch(() => null);
   const bal = await pub.readContract({ address: elo, abi: ERC20, functionName: "balanceOf", args: [seat.account] });
   if (bal === 0n) return null;
   return seatCall(core, seat, { target: elo, data: encodeFunctionData({ abi: ERC20, functionName: "transfer", args: [to, bal] }) });

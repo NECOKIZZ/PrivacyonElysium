@@ -56,6 +56,7 @@ export async function unlockPrivate(wallet: WalletClient): Promise<Private> {
       save: (r) => recs.save(toJson(r)),
     },
   });
+  await seedFromKeeper(priv);
   return { priv, core: priv.cores[0], address: who };
 }
 
@@ -63,6 +64,20 @@ export async function unlockPrivate(wallet: WalletClient): Promise<Private> {
  * The private HYPE balance. The first read asks the RPC for the vault's whole history in a few large requests (~3 s);
  * if that fails (an RPC that limits ranges, a heavy history), it falls back to small pieces, slower but always served.
  */
+/**
+ * Start the vault's tree from the keeper's public leaf list (GET /leaves), as Cloak's own site does, so the first sync
+ * reads only the newest blocks from the RPC instead of the vault's whole history. Checked against the vault's own
+ * root by the SDK; if anything is off it simply syncs from the chain.
+ */
+async function seedFromKeeper(priv: GloamPrivate): Promise<void> {
+  try {
+    const r = await fetch(`${RELAY_URL.replace(/\/$/, "")}/leaves?pool=${PRIVACY.gloamVault}`);
+    if (!r.ok) return;
+    const j = (await r.json()) as { block: string; leaves: [number, string, string][] };
+    await priv.seedLeaves(PRIVACY.gloamVault, { block: BigInt(j.block), leaves: j.leaves.map(([index, c]) => ({ index, commitment: BigInt(c) })) });
+  } catch {}
+}
+
 export async function privateHype(core: GloamCore): Promise<bigint> {
   try {
     await core.sync();

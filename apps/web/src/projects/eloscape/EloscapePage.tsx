@@ -249,10 +249,6 @@ export function EloscapePage() {
                 <div className="muted small">Closes in</div>
                 <div className="stat">{round ? `${left}s` : "…"}</div>
               </div>
-              <div style={{ textAlign: "right" }}>
-                <div className="muted small">Deployed</div>
-                <div className="stat">{round ? fmt(round.totalDeployed, 2) : "…"}</div>
-              </div>
             </div>
             <div className="timer">
               <i style={{ width: `${progress}%` }} />
@@ -260,13 +256,12 @@ export function EloscapePage() {
             <div className="board">
               {Array.from({ length: GRID }, (_, b) => (
                 <button key={b} className={`cell ${blocks.includes(b) ? "on" : ""}`} onClick={() => toggleBlock(b)} aria-pressed={blocks.includes(b)}>
-                  <span className="id">#{b + 1}</span>
-                  <span className="amt">{round ? fmt(round.deployed[b] ?? 0n, 3) : ""}</span>
+                  <span className="id">{b + 1}</span>
                 </button>
               ))}
             </div>
             <p className="muted small" style={{ marginBottom: 0 }}>
-              Live from Eloscape's contract. Pick your blocks.
+              Pick your blocks. Round and countdown are live from Eloscape's contract.
             </p>
           </div>
 

@@ -137,3 +137,6 @@ code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
 .pcard.sdk { border-color: var(--signal-line); background: var(--signal-soft); }
 .sdkstrip { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; border: 1px solid var(--signal-line); background: var(--signal-soft); border-radius: var(--r-md); padding: 12px 16px; margin-bottom: 16px; font-size: 14px; color: var(--soft); }
 .sdkstrip b { color: var(--text); }
+.cell { justify-content: center; align-items: center; }
+.cell .id { font-family: var(--font-num); font-size: 15px; color: var(--soft); }
+.cell.on .id { color: var(--signal); font-weight: 600; }
