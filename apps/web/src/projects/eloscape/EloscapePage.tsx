@@ -579,6 +579,22 @@ export function EloscapePage() {
               </div>
             </div>
 
+            {!randomAuto && (
+              <div className="strat-row">
+                <span>Strategy</span>
+                <span className="chips">
+                  {STRATEGIES.map((k) => (
+                    <button key={k} className={strategyOf(blocks) === k ? "on" : ""} onClick={() => setBlocks(strategyBlocks(k))} title={`${STRAT_LABEL[k]}: ${strategyBlocks(k).length} blocks`}>
+                      <MiniGrid blocks={strategyBlocks(k)} />
+                      {STRAT_LABEL[k]}
+                    </button>
+                  ))}
+                  <button onClick={() => setBlocks(randomBlocks(blocks.length || 1))} title="Random blocks (same number as selected)">
+                    Random
+                  </button>
+                </span>
+              </div>
+            )}
             {mode === "auto" && (
               <div className="stepper">
                 <span>Blocks</span>
