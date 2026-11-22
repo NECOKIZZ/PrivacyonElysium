@@ -201,3 +201,4 @@ code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
 .board-actions + .board { margin-top: 6px; }
 .swap-box input { width: 100%; }
 .layout > div { min-width: 0; }
+.seen-below { display: grid; gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 13px; }

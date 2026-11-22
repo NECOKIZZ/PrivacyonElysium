@@ -575,8 +575,6 @@ export function EloscapePage() {
               {mode === "auto" && <div className="kv"><span>Rounds</span><span>{rounds}</span></div>}
               <div className="kv"><span>Gloam exit fee (0.5%)</span><span>{stake > 0n ? `${fmt(exitFee, 6)} HYPE` : "—"}</span></div>
               <div className="kv total"><span>From your private balance</span><span>{stake > 0n ? `${fmt(stake)} HYPE` : "—"}</span></div>
-              <div className="kv seen-row"><span>Others see</span><span>{view.seen}</span></div>
-              <div className="kv seen-row"><span>Hidden</span><span>{view.hidden}</span></div>
             </div>
 
             {ready ? (
@@ -599,6 +597,10 @@ export function EloscapePage() {
               </button>
             )}
             <div className="status">{error ? <span className="err">{error}</span> : status}</div>
+            <div className="seen-below">
+              <div className="kv seen-row"><span>Others see</span><span>{view.seen}</span></div>
+              <div className="kv seen-row"><span>Hidden</span><span>{view.hidden}</span></div>
+            </div>
           </div>
         </div>
       </div>
