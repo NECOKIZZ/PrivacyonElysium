@@ -122,6 +122,9 @@ export async function privatePlay(core: GloamCore, p: { amount: bigint; blocks: 
  * Private Auto: one note funds an Auto position on a fresh seat, which plays `perBlock` on each of `blocks` every
  * round until its balance runs out (Eloscape's own Auto, unchanged). Stop and collect with collect().
  */
+/** EndRoundFull(): too many Auto setups already end in the round this one would end in. */
+const END_ROUND_FULL = /EndRoundFull|0x322437e2/;
+
 export async function privateAuto(
   core: GloamCore,
   p: { amount: bigint; blocks: number[]; perBlock: bigint; random?: { width: number } } & SeatOptions,
@@ -135,10 +138,21 @@ export async function privateAuto(
   const perRound = p.perBlock * BigInt(nBlocks);
   const rounds = seat.arrived / perRound;
   if (rounds < 1n) throw new Error("The amount doesn't cover one round at this size.");
-  await waitOpenRound(core.config.publicClient as PublicClient, AUTO_MIN_LEFT, onStatus);
-  onStatus(`Starting Auto for ${rounds} rounds`);
-  const tx = await seatCall(core, seat, { target: ELOSCAPE.game, value: rounds * perRound, data: p.random ? autoRandomCall(Math.floor(Math.random() * GRID), p.random.width, p.perBlock) : autoFixedCall(p.blocks, p.perBlock) });
-  return { seat, tx, rounds };
+  const pub = core.config.publicClient as PublicClient;
+  for (let attempt = 0; ; attempt++) {
+    const r = await waitOpenRound(pub, AUTO_MIN_LEFT, onStatus);
+    onStatus(`Starting Auto for ${rounds} rounds`);
+    try {
+      const tx = await seatCall(core, seat, { target: ELOSCAPE.game, value: rounds * perRound, data: p.random ? autoRandomCall(Math.floor(Math.random() * GRID), p.random.width, p.perBlock) : autoFixedCall(p.blocks, p.perBlock) });
+      return { seat, tx, rounds };
+    } catch (e) {
+      // Eloscape takes at most 64 Auto setups ending in the same round (EndRoundFull): start one round later instead,
+      // same number of rounds, as Eloscape's own app re-quotes. The seat keeps its HYPE meanwhile.
+      if (!END_ROUND_FULL.test(String((e as Error)?.message ?? e)) || attempt >= 2) throw e;
+      onStatus("Auto slots ending that round are full; starting in the next round");
+      while ((await liveRound(pub)).id === r.id) await sleep(2000);
+    }
+  }
 }
 
 /**

@@ -138,17 +138,18 @@ function useRound() {
   return { round, nowMs, last };
 }
 
-type Clock = { phase: "loading" | "mining" | "settling" | "next"; label: string; secs: number | null; bar: number };
+type Clock = { phase: "loading" | "mining" | "settling"; label: string; secs: number | null; bar: number; id: bigint | null };
 /** What the round panel shows; whole seconds as Eloscape counts them (end minus the current second). */
 function roundClock(round: LiveRound | null, nowMs: number): Clock {
-  if (!round) return { phase: "loading", label: "Closes in", secs: null, bar: 0 };
+  if (!round) return { phase: "loading", label: "Closes in", secs: null, bar: 0, id: null };
   const now = Math.floor(nowMs / 1000);
-  if (round.startTime > now) return { phase: "next", label: "Next round in", secs: round.startTime - now, bar: 0 };
+  // the break before the next round shows as the closed round settling: one countdown on screen, never two
+  if (round.startTime > now) return { phase: "settling", label: "Round closed", secs: null, bar: 100, id: round.id - 1n };
   if (now < round.endTime) {
     const span = Math.max(1, round.endTime - round.startTime);
-    return { phase: "mining", label: "Closes in", secs: round.endTime - now, bar: Math.min(100, Math.max(0, ((nowMs / 1000 - round.startTime) / span) * 100)) };
+    return { phase: "mining", label: "Closes in", secs: round.endTime - now, bar: Math.min(100, Math.max(0, ((nowMs / 1000 - round.startTime) / span) * 100)), id: round.id };
   }
-  return { phase: "settling", label: "Round closed", secs: null, bar: 100 };
+  return { phase: "settling", label: "Round closed", secs: null, bar: 100, id: round.id };
 }
 
 export function EloscapePage() {
@@ -472,7 +473,7 @@ export function EloscapePage() {
             <div className="row">
               <div>
                 <div className="muted small">Round</div>
-                <div className="stat">{round ? `#${round.id}` : <span className="shimmer" style={{ width: 90, height: 26 }} />}</div>
+                <div className="stat">{clock.id !== null ? `#${clock.id}` : <span className="shimmer" style={{ width: 90, height: 26 }} />}</div>
               </div>
               <div style={{ textAlign: "right" }}>
                 <div className="muted small">{clock.label}</div>

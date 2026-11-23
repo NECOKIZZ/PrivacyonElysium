@@ -160,7 +160,7 @@ try {
   await page.locator('.switch input').first().uncheck();
   await page.getByLabel("Amount per block").fill("0.5");
   forcedBlock = 7;
-  await page.getByRole("button", { name: "Play block 8", exact: true }).click();
+  await page.getByRole("button", { name: "Play block 8", exact: true }).click({ timeout: 600_000 }); // after the shield finishes
   await waitStatus(/Played from seat/, 900_000);
   check(true, "played from a fresh seat");
   await page.locator(".seat").first().waitFor();
