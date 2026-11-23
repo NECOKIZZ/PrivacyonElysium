@@ -161,7 +161,6 @@ async function sweep(priv: GloamPrivate, wallet: string): Promise<number> {
   for (let i = 0; i < idx.length; i += 50) {
     const chunk = idx.slice(i, i + 50);
     const boxes = await retry(() => Promise.all(chunk.map((n) => priv.receiveAddress(n))));
-    if (i === 0) console.info(`fallback sweep: first addresses ${boxes.slice(0, 6).join(" ")}`);
     // balances: one multicall per 50 addresses; code: small batches. A read that keeps failing stops the sweep with
     // its error instead of passing for an empty address (it runs again on the next open)
     const bal = await retry(() =>
