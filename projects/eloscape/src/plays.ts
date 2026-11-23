@@ -12,7 +12,7 @@ import type { Address, Hex, PublicClient } from "viem";
 import type { GloamCore } from "@cloakely/sdk";
 import { ELOSCAPE } from "./config.js";
 import { GRID, MIN_DEPLOY, autoFixedCall, autoRandomCall, claimAllCall, deployCall, liveRound, owed, stopAutoCall } from "./game.js";
-import { ELO_MIN_SWAP, swapHeldElo } from "./elo.js";
+import { eloSwapWorth, payEloGas, swapHeldElo } from "./elo.js";
 import { openSeat, returnSeat, seatCall, sendSeatCall, signSeatCall, type ReceiveRoute, type Seat, type SignedSeatCall, type Status } from "./seat.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -157,7 +157,8 @@ export async function privateAuto(
 
 /**
  * Collect a seat: stop its Auto if it runs, claim what the game owes it (HYPE, and ELO when swapping) in one call,
- * swap its ELO to HYPE when asked (and worth it), and put everything back into the private balance in one return.
+ * swap its ELO to HYPE when asked and when the swap pays for its own gas (the seat pays the relay back from what the
+ * swap fetched), and put everything back into the private balance in one return.
  * Without swapElo, ELO stays credited to the seat for Send ELO later.
  */
 export async function collect(
@@ -166,7 +167,7 @@ export async function collect(
   onStatus: Status = () => {},
   viaReceive?: () => Promise<ReceiveRoute>,
   opts: { swapElo?: boolean } = {},
-): Promise<{ txs: Hex[]; eloSwapped: bigint }> {
+): Promise<{ txs: Hex[]; eloSwapped: bigint; eloGasPaid: bigint }> {
   const pub = core.config.publicClient as PublicClient;
   const txs: Hex[] = [];
   const o = await owed(pub, seat.account);
@@ -174,15 +175,29 @@ export async function collect(
     onStatus("Stopping Auto");
     txs.push(await seatCall(core, seat, { target: ELOSCAPE.game, data: stopAutoCall() }));
   }
-  const swap = !!opts.swapElo && o.elo >= ELO_MIN_SWAP;
   const after = o.autoActive ? await owed(pub, seat.account) : o;
+  // ELO is swapped only when what it fetches pays for its own gas with room to spare; otherwise it stays credited to
+  // the seat in Eloscape, untouched
+  const swap = !!opts.swapElo && after.elo > 0n && (await eloSwapWorth(pub, after.elo)).worth;
+  let claimTx: Hex | undefined;
   if (after.hype > 0n || swap) {
     onStatus(swap ? "Claiming winnings and ELO" : "Claiming winnings");
-    txs.push(await seatCall(core, seat, { target: ELOSCAPE.game, data: claimAllCall(swap) }));
+    claimTx = await seatCall(core, seat, { target: ELOSCAPE.game, data: claimAllCall(swap) });
+    txs.push(claimTx);
   }
-  const eloSwapped = swap ? await swapHeldElo(core, seat, onStatus) : 0n;
+  let eloSwapped = 0n;
+  let eloGasPaid = 0n;
+  if (swap && claimTx) {
+    const s = await swapHeldElo(core, seat, onStatus);
+    eloSwapped = s.eloIn;
+    txs.push(...s.txs);
+    if (s.txs.length) {
+      onStatus("Paying the ELO swap's gas from what it fetched");
+      eloGasPaid = await payEloGas(core, seat, claimTx, s.txs);
+    }
+  }
   txs.push(...(await returnSeat(core, seat, onStatus, viaReceive)));
-  return { txs, eloSwapped };
+  return { txs, eloSwapped, eloGasPaid };
 }
 
 // ── Phase 2 ─────────────────────────────────────────────────────────────────

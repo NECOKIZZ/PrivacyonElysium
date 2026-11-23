@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatEther, isAddress, parseEther, type Address, type WalletClient } from "viem";
 import {
-  ELOSCAPE, GRID, MIN_DEPLOY, SEAL_LEAD_SECONDS, ELO_MIN_SWAP, GLOAM_EXIT_FEE_BPS, RANDOM_WIDTHS, STRATEGIES, collect, grossFor, randomBlocks, strategyBlocks, strategyOf, liveRound, owed, privateAuto, privatePlay, sealedPlay, sendSeatElo, splitPlay, splitSizes,
+  ELOSCAPE, GRID, MIN_DEPLOY, SEAL_LEAD_SECONDS, eloSwapFloor, GLOAM_EXIT_FEE_BPS, RANDOM_WIDTHS, STRATEGIES, collect, grossFor, randomBlocks, strategyBlocks, strategyOf, liveRound, owed, privateAuto, privatePlay, sealedPlay, sendSeatElo, splitPlay, splitSizes,
   type LiveRound, type Seat,
 } from "@privacy-for-elysium/eloscape";
 import { Footer, REPO, SDK_DOCS, TopBar, go } from "../../pages/chrome";
@@ -180,6 +180,8 @@ export function EloscapePage() {
   const [eloMode, setEloMode] = useState<"swap" | "keep">(() => (cache.get<string>("eloMode") === "keep" ? "keep" : "swap"));
   const setEloModeSaved = (m: "swap" | "keep") => (setEloMode(m), cache.set("eloMode", m));
   const [showAll, setShowAll] = useState(false);
+  /** The least ELO worth swapping now: below it, the swap's own gas would eat what it fetches. */
+  const [eloFloor, setEloFloor] = useState<bigint | null>(null);
   const [syncErr, setSyncErr] = useState("");
   const [lastMine, setLastMine] = useState<{ round: string; won: number; lost: number } | null>(null);
 
@@ -193,6 +195,7 @@ export function EloscapePage() {
     try {
       const b = await privateHype(p.core);
       setBal(b);
+      eloSwapFloor(publicClient).then(setEloFloor).catch(() => {});
       cache.set(`bal.${p.address}`, b.toString());
       setSyncErr("");
     } catch (e) {
@@ -279,14 +282,17 @@ export function EloscapePage() {
     setSheet("");
   };
 
-  /** A seat has something to collect: HYPE, a running Auto, or (when swapping) enough ELO to be worth it. */
+  /** ELO this seat holds that is too small to pay for its own swap yet. */
+  const eloTooSmall = (o?: { elo: bigint }) => eloMode === "swap" && !!o && o.elo > 0n && (eloFloor === null || o.elo < eloFloor);
+  /** A seat has something to collect: HYPE, a running Auto, or (when swapping) ELO worth its own swap. */
   const due = (s: BookSeat) => {
     const o = owedBy[s.account];
-    return !!o && (o.hype + o.held > 0n || o.autoActive || (eloMode === "swap" && o.elo >= ELO_MIN_SWAP));
+    return !!o && (o.hype + o.held > 0n || o.autoActive || (eloMode === "swap" && o.elo > 0n && !eloTooSmall(o)));
   };
   const markCollected = (s: BookSeat, swapped: boolean) => {
     if (!book) return;
-    const keepsElo = eloMode === "keep" && (owedBy[s.account]?.elo ?? 0n) > 0n;
+    // a seat whose ELO stayed (Keep ELO, or too small to swap yet) stays listed, so its ELO is never out of sight
+    const keepsElo = (owedBy[s.account]?.elo ?? 0n) > 0n && (eloMode === "keep" || !swapped);
     book.save(book.load().map((x) => (x.account === s.account ? { ...x, done: swapped || !keepsElo } : x)));
   };
   const relayLimited = (e: unknown) => /429|your share|budget|too many/i.test(e instanceof Error ? e.message : String(e));
@@ -298,12 +304,14 @@ export function EloscapePage() {
       let ok = 0;
       let failed = 0;
       let elo = 0n;
+      let gas = 0n;
       for (let i = 0; i < list.length; i++) {
         setStatus(`Collecting seat ${i + 1} of ${list.length}${eloMode === "swap" ? " (with its ELO)" : ""}`);
         try {
           const r = await collect(p!.core, list[i], () => {}, receiveRoute(p!.priv, p!.address), { swapElo: eloMode === "swap" });
           markCollected(list[i], r.eloSwapped > 0n);
           elo += r.eloSwapped;
+          gas += r.eloGasPaid;
           ok++;
         } catch (e) {
           if (relayLimited(e)) {
@@ -315,7 +323,7 @@ export function EloscapePage() {
       }
       setStatus(
         list.length
-          ? `Collected ${ok} seat${ok === 1 ? "" : "s"} into your private balance${elo > 0n ? `, with ${fmt(elo)} ELO swapped to HYPE` : ""}${failed ? `; ${failed} failed and stay listed` : ""}.`
+          ? `Collected ${ok} seat${ok === 1 ? "" : "s"} into your private balance${elo > 0n ? `, with ${fmt(elo)} ELO swapped to HYPE (gas ${fmt(gas, 6)} HYPE, paid from it)` : ""}${failed ? `; ${failed} failed and stay listed` : ""}.`
           : "Nothing to collect.",
       );
     });
@@ -396,7 +404,13 @@ export function EloscapePage() {
     run("Bringing it back to your private balance", async () => {
       const r = await collect(p!.core, s, setStatus, receiveRoute(p!.priv, p!.address), { swapElo: eloMode === "swap" });
       markCollected(s, r.eloSwapped > 0n);
-      setStatus(r.eloSwapped > 0n ? `Back in your private balance, with ${fmt(r.eloSwapped)} ELO swapped to HYPE.` : "Back in your private balance.");
+      setStatus(
+        r.eloSwapped > 0n
+          ? `Back in your private balance, with ${fmt(r.eloSwapped)} ELO swapped to HYPE (its gas, ${fmt(r.eloGasPaid, 6)} HYPE, paid from what it fetched).`
+          : eloTooSmall(owedBy[s.account])
+            ? "Back in your private balance. Its ELO is too small to pay for its own swap yet and stays in the seat."
+            : "Back in your private balance.",
+      );
     });
 
   const lastSecs = `in the last ${SEAL_LEAD_SECONDS}s of the round`;
@@ -737,7 +751,9 @@ export function EloscapePage() {
         </div>
         <p className="muted small" style={{ marginTop: 6 }}>
           One-time addresses that played for you. Collect returns their HYPE to your private balance
-          {eloMode === "swap" ? ", and swaps their ELO to HYPE on the way (about 4% in pool and Eloscape fees; amounts under 0.02 ELO stay)." : ". Their ELO stays in them until you send it."}
+          {eloMode === "swap"
+            ? `, and swaps their ELO to HYPE on the way. Each swap pays its own gas from the HYPE it fetches, on top of about 4% in pool and Eloscape fees${eloFloor !== null ? `; ELO under ${fmt(eloFloor)} is too small to pay for that yet and stays in the seat` : ""}.`
+            : ". Their ELO stays in them until you send it."}
         </p>
         {!openSeats.length && <p className="muted small">No open seats yet.</p>}
         {openSeats.length > 0 && (
@@ -757,7 +773,7 @@ export function EloscapePage() {
               </div>
               <div className="row muted">
                 <span className="num">
-                  {o ? `${fmt(o.hype + o.held)} HYPE${o.autoActive ? ` · Auto ${fmt(o.autoBalance)} left` : ""}${o.elo > 0n ? ` · ${fmt(o.elo)} ELO` : ""}` : <span className="shimmer" style={{ width: 160, height: 14 }} />}
+                  {o ? `${fmt(o.hype + o.held)} HYPE${o.autoActive ? ` · Auto ${fmt(o.autoBalance)} left` : ""}${o.elo > 0n ? ` · ${fmt(o.elo)} ELO${eloTooSmall(o) ? " (too small to swap yet)" : ""}` : ""}` : <span className="shimmer" style={{ width: 160, height: 14 }} />}
                 </span>
                 <button className="btn small" onClick={() => collectSeat(s)} disabled={busy || !due(s)}>
                   {o?.autoActive ? "Stop & collect" : "Collect"}

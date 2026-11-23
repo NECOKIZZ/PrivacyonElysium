@@ -120,6 +120,18 @@ export function receiveRoute(priv: GloamPrivate, wallet: string) {
   };
 }
 
+const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11" as const;
+const MC3 = [{ type: "function", name: "getEthBalance", stateMutability: "view", inputs: [{ name: "addr", type: "address" }], outputs: [{ name: "", type: "uint256" }] }] as const;
+async function retry<T>(f: () => Promise<T>, tries = 4): Promise<T> {
+  for (let k = 0; ; k++) {
+    try {
+      return await f();
+    } catch (e) {
+      if (k >= tries - 1) throw e;
+      await new Promise((r) => setTimeout(r, 1500 * (k + 1)));
+    }
+  }
+}
 /** Receive addresses from 1000 up are seat fallbacks; this many past the last known one are always checked. */
 const FALLBACK_SCAN = 200;
 
@@ -148,14 +160,18 @@ async function sweep(priv: GloamPrivate, wallet: string): Promise<number> {
   let used = next - 1;
   for (let i = 0; i < idx.length; i += 50) {
     const chunk = idx.slice(i, i + 50);
-    const boxes = await Promise.all(chunk.map((n) => priv.receiveAddress(n)));
-    const [bal, code] = await Promise.all([
-      Promise.all(boxes.map((a) => pub.getBalance({ address: a }).catch(() => 0n))),
-      Promise.all(boxes.map((a) => pub.getCode({ address: a }).catch(() => undefined))),
-    ]);
+    const boxes = await retry(() => Promise.all(chunk.map((n) => priv.receiveAddress(n))));
+    if (i === 0) console.info(`fallback sweep: first addresses ${boxes.slice(0, 6).join(" ")}`);
+    // balances: one multicall per 50 addresses; code: small batches. A read that keeps failing stops the sweep with
+    // its error instead of passing for an empty address (it runs again on the next open)
+    const bal = await retry(() =>
+      pub.multicall({ contracts: boxes.map((a) => ({ address: MULTICALL3, abi: MC3, functionName: "getEthBalance", args: [a] }) as const), allowFailure: false }),
+    );
+    const code: (string | undefined)[] = [];
+    for (let j = 0; j < boxes.length; j += 10) code.push(...(await retry(() => Promise.all(boxes.slice(j, j + 10).map((a) => pub.getCode({ address: a }))))));
     for (let j = 0; j < chunk.length; j++) {
       if (bal[j] > 0n || (code[j] && code[j] !== "0x")) used = Math.max(used, chunk[j]);
-      if (bal[j] > 0n) made += (await priv.collectReceived(chunk[j]).catch(() => [])).length;
+      if (bal[j] > 0n) made += (await priv.collectReceived(chunk[j])).length;
     }
   }
   if (used + 1 > next) st.save(String(used + 1));

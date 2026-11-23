@@ -180,6 +180,11 @@ try {
   await page.getByRole("button", { name: "Collect", exact: true }).first().click();
   const collected = await waitStatus(/Back in your private balance/, 900_000);
   check(/ELO swapped to HYPE/.test(collected), `the seat's ELO was swapped on collect: "${collected}"`);
+  check(/its gas, [0-9.]+ HYPE, paid from what it fetched/.test(collected), "the ELO swap paid its own gas from what it fetched");
+  {
+    const inputs = await Promise.all(relayed.map((h) => pub.getTransaction({ hash: h }).then((t) => t.input.toLowerCase())));
+    check(inputs.some((d) => d.includes(relayer.account.address.slice(2).toLowerCase())), "a seat call paid the relay back (the relay's address is its target)");
+  }
   for (let i = 0; i < 60 && (await balance()) <= before; i++) await sleep(2000);
   check((await balance()) > before, `collected: private balance ${before} → ${await balance()}`);
 
@@ -232,6 +237,8 @@ try {
   check(fbs.length > 0, `the seats' fallbacks are receive addresses of the private account (${fbs.length} seats)`);
   const fb = fbs[fbs.length - 1];
   await rpc("eth_sendTransaction", [{ from: ALICE, to: fb, value: "0x429d069189e0000" }]); // 0.3 HYPE, as a timeout push would
+  await sleep(2500);
+  console.log("  fallbacks:", fbs.join(" "), "| funded", fb, "holds", Number(await pub.getBalance({ address: fb })) / 1e18, "HYPE");
   const beforeWipe = await balance();
   await page.evaluate(() => localStorage.clear());
   await page.goto(`http://127.0.0.1:${SITE}/eloscape`);
