@@ -101,6 +101,7 @@ export async function privateHype(core: GloamCore): Promise<bigint> {
  */
 export function fallbackFor(priv: GloamPrivate, wallet: string): () => Promise<`0x${string}`> {
   return async () => {
+    await (scans.get(wallet.toLowerCase()) ?? Promise.resolve()).catch(() => {}); // never hand out an index a scan is still placing
     const k = `pfe.fallback.v1.${CHAIN.id}.${wallet.toLowerCase()}`;
     const st = store(k);
     const n = Number(st.load() ?? "1000");
@@ -119,11 +120,46 @@ export function receiveRoute(priv: GloamPrivate, wallet: string) {
   };
 }
 
-/** Sweep the seat fallbacks (receive addresses 1000..next) back into the private balance. */
-export async function sweepFallbacks(priv: GloamPrivate, wallet: string): Promise<number> {
-  const next = Number(store(`pfe.fallback.v1.${CHAIN.id}.${wallet.toLowerCase()}`).load() ?? "1000");
+/** Receive addresses from 1000 up are seat fallbacks; this many past the last known one are always checked. */
+const FALLBACK_SCAN = 200;
+
+/**
+ * Sweep the seat fallbacks back into the private balance, without trusting this device's records: a fresh device
+ * (cleared storage, another browser) has no counter, so every receive address from 1000 to the counter plus
+ * FALLBACK_SCAN is checked in batched reads, and only those holding HYPE are collected. Addresses found in use
+ * (holding funds, or already deployed by an earlier collect) move the counter past them, so a new seat never reuses a
+ * fallback another device gave out.
+ */
+export function sweepFallbacks(priv: GloamPrivate, wallet: string): Promise<number> {
+  const w = wallet.toLowerCase();
+  const run = scans.get(w) ?? sweep(priv, w).finally(() => scans.delete(w));
+  scans.set(w, run);
+  return run;
+}
+const scans = new Map<string, Promise<number>>();
+
+async function sweep(priv: GloamPrivate, wallet: string): Promise<number> {
+  const k = `pfe.fallback.v1.${CHAIN.id}.${wallet.toLowerCase()}`;
+  const st = store(k);
+  const next = Number(st.load() ?? "1000");
+  const idx = Array.from({ length: next - 1000 + FALLBACK_SCAN }, (_, i) => 1000 + i);
+  const pub = publicClient;
   let made = 0;
-  for (let n = Math.max(1000, next - 50); n < next; n++) made += (await priv.collectReceived(n).catch(() => [])).length;
+  let used = next - 1;
+  for (let i = 0; i < idx.length; i += 50) {
+    const chunk = idx.slice(i, i + 50);
+    const boxes = await Promise.all(chunk.map((n) => priv.receiveAddress(n)));
+    const [bal, code] = await Promise.all([
+      Promise.all(boxes.map((a) => pub.getBalance({ address: a }).catch(() => 0n))),
+      Promise.all(boxes.map((a) => pub.getCode({ address: a }).catch(() => undefined))),
+    ]);
+    for (let j = 0; j < chunk.length; j++) {
+      if (bal[j] > 0n || (code[j] && code[j] !== "0x")) used = Math.max(used, chunk[j]);
+      if (bal[j] > 0n) made += (await priv.collectReceived(chunk[j]).catch(() => [])).length;
+    }
+  }
+  if (used + 1 > next) st.save(String(used + 1));
+  console.info(`fallback sweep: checked ${idx.length} receive addresses, collected ${made}, next index ${Math.max(next, used + 1)}`);
   return made;
 }
 

@@ -265,7 +265,7 @@ export function EloscapePage() {
       const u = await unlockPrivate(w);
       setP(u);
       setStatus("");
-      sweepFallbacks(u.priv, u.address).catch(() => {}); // a timed-out seat's funds, back into the private balance
+      sweepFallbacks(u.priv, u.address).catch((e) => console.warn("fallback sweep:", e)); // a timed-out seat's funds, back into the private balance
     });
 
   const disconnect = () => {
