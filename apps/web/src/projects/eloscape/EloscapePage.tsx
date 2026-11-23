@@ -84,41 +84,76 @@ const blockWord = (bs: number[]) => `block${bs.length > 1 ? "s" : ""} ${bs.map((
 
 type LastRound = { id: string; winningBlock: number; settled: boolean };
 
+/**
+ * The round clock, the way Eloscape's own app keeps it: the device clock (no correction from block times, which are
+ * whole seconds and a node or two behind), the round's own start and end from the contract, and three phases:
+ *  - mining: until the round's end;
+ *  - settling: after the end, until the contract moves to the next round (the drand draw; read every 1.5 s);
+ *  - next: the next round exists but starts later; count down to its real start.
+ * A cached round is shown on reload only while it can still be current, so a refresh never starts from a stale one.
+ */
 function useRound() {
+  const fresh = (c: { endTime: number } | null) => c && c.endTime + 20 > Date.now() / 1000;
   const [round, setRound] = useState<LiveRound | null>(() => {
     const c = cache.get<{ id: string; startTime: number; endTime: number }>("round");
-    return c ? { id: BigInt(c.id), startTime: c.startTime, endTime: c.endTime, totalDeployed: 0n, minerCount: 0n, deployed: [] } : null;
+    return c && fresh(c) ? { id: BigInt(c.id), startTime: c.startTime, endTime: c.endTime, totalDeployed: 0n, minerCount: 0n, deployed: [] } : null;
   });
   const [last, setLast] = useState<LastRound | null>(() => cache.get<LastRound>("lastRound"));
-  const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
-  const skew = useRef(0); // chain clock minus device clock
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const roundRef = useRef(round);
+  roundRef.current = round;
   useEffect(() => {
     let live = true;
-    const tick = async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const read = async () => {
       if (!visible()) return;
       try {
-        const [r, b] = await Promise.all([liveRound(publicClient), publicClient.getBlock()]);
-        skew.current = Number(b.timestamp) - Math.floor(Date.now() / 1000);
+        const r = await liveRound(publicClient);
         if (!live) return;
         setRound(r);
         cache.set("round", { id: r.id.toString(), startTime: r.startTime, endTime: r.endTime });
         const prev = r.id - 1n;
         const [, , winningBlock, settled] = await publicClient.readContract({ address: ELOSCAPE.game, abi: GAME_ABI, functionName: "roundTotals", args: [prev] });
+        if (!live) return;
         const l = { id: prev.toString(), winningBlock: Number(winningBlock), settled };
         setLast(l);
         cache.set("lastRound", l);
       } catch {}
     };
-    tick();
-    const a = setInterval(tick, 5000);
-    const c = setInterval(() => setNow(Math.floor(Date.now() / 1000) + skew.current), 500);
-    return () => ((live = false), clearInterval(a), clearInterval(c));
+    // read often only around a boundary (settling, or a round about to start), otherwise every 5 s
+    const loop = async () => {
+      await read();
+      if (!live) return;
+      const r = roundRef.current;
+      const t = Date.now() / 1000;
+      const near = !r || t >= r.endTime - 1 || (r.startTime > t && r.startTime - t < 2);
+      timer = setTimeout(loop, near ? 1500 : 5000);
+    };
+    loop();
+    const c = setInterval(() => setNowMs(Date.now()), 200);
+    const back = () => visible() && (clearTimeout(timer), loop());
+    document.addEventListener("visibilitychange", back);
+    return () => ((live = false), clearTimeout(timer), clearInterval(c), document.removeEventListener("visibilitychange", back));
   }, []);
-  return { round, now, last };
+  return { round, nowMs, last };
+}
+
+type Clock = { phase: "loading" | "mining" | "settling" | "next"; label: string; secs: number | null; bar: number };
+/** What the round panel shows; whole seconds as Eloscape counts them (end minus the current second). */
+function roundClock(round: LiveRound | null, nowMs: number): Clock {
+  if (!round) return { phase: "loading", label: "Closes in", secs: null, bar: 0 };
+  const now = Math.floor(nowMs / 1000);
+  if (round.startTime > now) return { phase: "next", label: "Next round in", secs: round.startTime - now, bar: 0 };
+  if (now < round.endTime) {
+    const span = Math.max(1, round.endTime - round.startTime);
+    return { phase: "mining", label: "Closes in", secs: round.endTime - now, bar: Math.min(100, Math.max(0, ((nowMs / 1000 - round.startTime) / span) * 100)) };
+  }
+  return { phase: "settling", label: "Round closed", secs: null, bar: 100 };
 }
 
 export function EloscapePage() {
-  const { round, now, last } = useRound();
+  const { round, nowMs, last } = useRound();
+  const clock = roundClock(round, nowMs);
   const [wallet, setWallet] = useState<WalletClient | null>(null);
   const [p, setP] = useState<Private | null>(null);
   const [bal, setBal] = useState<bigint | null>(null);
@@ -308,8 +343,6 @@ export function EloscapePage() {
     });
 
   const toggleBlock = (b: number) => setBlocks((x) => (x.includes(b) ? x.filter((y) => y !== b) : [...x, b].sort((a, c) => a - c)));
-  const left = round ? Math.max(0, round.endTime - now) : 0;
-  const progress = round ? Math.min(100, ((now - round.startTime) / Math.max(1, round.endTime - round.startTime)) * 100) : 0;
 
   let per = 0n;
   try {
@@ -442,14 +475,14 @@ export function EloscapePage() {
                 <div className="stat">{round ? `#${round.id}` : <span className="shimmer" style={{ width: 90, height: 26 }} />}</div>
               </div>
               <div style={{ textAlign: "right" }}>
-                <div className="muted small">{round && left === 0 ? "Next round in" : "Closes in"}</div>
+                <div className="muted small">{clock.label}</div>
                 <div className="stat">
-                  {!round ? <span className="shimmer" style={{ width: 50, height: 26 }} /> : left > 0 ? `${left}s` : `${Math.max(0, round.endTime + 12 - now)}s`}
+                  {clock.phase === "loading" ? <span className="shimmer" style={{ width: 50, height: 26 }} /> : clock.phase === "settling" ? "Settling…" : `${clock.secs}s`}
                 </div>
               </div>
             </div>
             <div className="timer">
-              <i style={{ width: `${progress}%` }} />
+              <i style={{ width: `${clock.bar}%` }} />
             </div>
             <div className="board-actions">
               <span className="muted small">

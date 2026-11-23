@@ -104,7 +104,7 @@ footer { border-top: 1px solid var(--line); padding: 22px 0 40px; color: var(--m
 .cell .id { font-size: 11px; color: var(--mute); }
 .cell .amt { font-family: var(--font-num); font-size: 11.5px; color: var(--soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .timer { height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; margin-top: 10px; }
-.timer > i { display: block; height: 100%; background: var(--signal); transition: width 0.9s linear; }
+.timer > i { display: block; height: 100%; background: var(--signal); }
 
 .seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 999px; padding: 3px; gap: 2px; }
 .seg button { border: 0; background: transparent; border-radius: 999px; padding: 6px 14px; cursor: pointer; font-weight: 550; color: var(--mute); }
