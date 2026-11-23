@@ -23,7 +23,11 @@
   ],
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/eloscape",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/eloscape/",
       "destination": "/index.html"
     }
   ]
