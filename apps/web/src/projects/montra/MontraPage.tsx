@@ -3,10 +3,10 @@ import { formatEther, isAddress, keccak256, parseEther, type Address, type Walle
 import { fromJson, toJson } from "@cloakely/sdk";
 import { SEAT_DAYS, grossFor, recoverSeats, returnSeat, seatDaysLeft, splitSizes, type Seat, type SeatDays } from "@privacy-for-elysium/eloscape";
 import {
-  BUILDER_CODE, buyMore, buyPrivately, claimHoldingRewards, claimMineFees, holdingView, launchFromMine, launchRows, mineOwed, montraSeatLabels, payoutCost, recoverMontra, sellPrivately, tokenCard,
+  BUILDER_CODE, buyMore, buyPrivately, launchTime, claimHoldingRewards, claimMineFees, holdingView, launchFromMine, launchRows, mineOwed, montraSeatLabels, payoutCost, recoverMontra, sellPrivately, tokenCard,
   type Holding, type LaunchRow, type Mine, type TokenMarket, type TokenProfile,
 } from "@privacy-for-elysium/montra";
-import { Copy, ImagePicker, TokenCard, num, socialLinks, uploadImage, uploadMetadata, useHypeUsd, type PickedImage } from "./tokenui";
+import { Addr, Icon, ImagePicker, TokenRow, TokenSheet, num, uploadImage, uploadMetadata, useHypeUsd, type PickedImage } from "./tokenui";
 import { Footer, REPO, TopBar, go } from "../../pages/chrome";
 import { connectWallet, publicClient, visible } from "../../wallet";
 import { fallbackOf, privateHype, receiveRoute, sweepFallbacks, sweepSeatFallbacks, unlockPrivate, type Private } from "../../privacy";
@@ -14,6 +14,7 @@ import { fallbackOf, privateHype, receiveRoute, sweepFallbacks, sweepSeatFallbac
 const EXPLORER = "https://elysium.kinetiq.xyz/explorer/address/";
 const MONTRA_TOKEN = "https://montramarkets.xyz/token/";
 const TX = "https://elysium.kinetiq.xyz/explorer/tx/";
+const FOMO = "https://fomo.family/tokens/elysium/";
 /** Our own slot in a creator's fee split (Montra allows at most 20%). Off until the payout wallet is chosen. */
 const BUILDER_FEE_TO = import.meta.env.VITE_BUILDER_FEE_TO as Address | undefined;
 const BUILDER_FEE_BPS = Number(import.meta.env.VITE_BUILDER_FEE_BPS ?? 0);
@@ -88,6 +89,26 @@ export function MontraPage() {
   const [justLaunched, setJustLaunched] = useState<Mine | null>(null);
   const [tab, setTab] = useState<"launches" | "holdings">("launches");
   const [more, setMore] = useState<{ seat: string; amt: string } | null>(null);
+  const [openRow, setOpenRow] = useState<string | null>(null);
+  const [launchedAt, setLaunchedAt] = useState<Record<string, number>>({});
+  const usdOrHype = (hype: number) => (usdPerHype ? `$${num(hype * usdPerHype)}` : `${num(hype)} HYPE`);
+  const mineMaker = (m: Mine) => ({ label: "by your mine", addr: m.seat.account, href: EXPLORER + m.seat.account, title: "Your mine: a fresh address only you control, funded from Gloam's vault" });
+  const tokenLinks = (token: string, launchTx?: string) => (
+    <>
+      <a className="ilink" href={MONTRA_TOKEN + token} target="_blank" rel="noreferrer">
+        <img src="/projects/montra/logo.png" alt="" />
+        montra
+      </a>
+      <a className="ilink" href={FOMO + token} target="_blank" rel="noreferrer" title="This token on FOMO">
+        {Icon.flame}
+        fomo
+      </a>
+      <a className="ilink" href={launchTx ? TX + launchTx : EXPLORER + token} target="_blank" rel="noreferrer">
+        {Icon.out}
+        {launchTx ? "launch tx" : "explorer"}
+      </a>
+    </>
+  );
   const usdPerHype = useHypeUsd();
 
   // launch form
@@ -145,6 +166,9 @@ export function MontraPage() {
     const tokens = [...new Set([...b.mines.map((m) => m.token), ...b.holdings.filter((x) => !x.done).map((h) => h.token)])];
     const got = await Promise.all(tokens.map((t) => tokenCard(publicClient, t).then((c) => [t, c] as const).catch(() => null)));
     setCards((old) => ({ ...old, ...Object.fromEntries(got.filter((x) => !!x)) }));
+    // when each launch happened, from its launch transaction (fetched once)
+    const times = await Promise.all(b.mines.map((m) => launchTime(publicClient, m.launchTx).then((t) => [m.token, t] as const).catch(() => null)));
+    setLaunchedAt((old) => ({ ...old, ...Object.fromEntries(times.filter((x) => !!x)) }));
   }, [p, store]);
   useEffect(() => {
     refresh();
@@ -607,32 +631,28 @@ export function MontraPage() {
 
       {justLaunched && (
         <section className="launched" id="launched" data-testid="launched">
-          <div className="row">
-            <h2>{justLaunched.symbol} is live on Montra</h2>
+          <div className="launched-head">
+            <h2>
+              {justLaunched.symbol} is live <span className="pill live">{Icon.lock} Launched privately</span>
+            </h2>
             <button className="btn small" onClick={() => setJustLaunched(null)}>Close</button>
           </div>
-          <TokenCard
+          <TokenSheet
+            token={justLaunched.token}
             profile={cards[justLaunched.token]?.profile}
             market={cards[justLaunched.token]?.market}
             fallback={justLaunched}
             usdPerHype={usdPerHype}
-            badge={<span className="pill live">Launched privately</span>}
-            links={
-              <>
-                <a href={MONTRA_TOKEN + justLaunched.token} target="_blank" rel="noreferrer">Trade on Montra</a>
-                <a href={EXPLORER + justLaunched.token} target="_blank" rel="noreferrer">Token on explorer</a>
-                <a href={TX + justLaunched.launchTx} target="_blank" rel="noreferrer">Launch transaction</a>
-                <Copy text={justLaunched.token} label="Copy token address" />
-                {socialLinks(cards[justLaunched.token]?.profile)}
-              </>
-            }
+            launchedAt={launchedAt[justLaunched.token]}
+            maker={mineMaker(justLaunched)}
+            extraLinks={tokenLinks(justLaunched.token, justLaunched.launchTx)}
           />
-          <div className="seen">
-            <div className="kv seen-row"><span>Token</span><span><code>{justLaunched.token}</code></span></div>
-            <div className="kv seen-row"><span>Creator on chain</span><span>Your mine <a href={EXPLORER + justLaunched.seat.account} target="_blank" rel="noreferrer"><code>{short(justLaunched.seat.account)}</code></a>, a fresh address funded from Gloam's vault</span></div>
-            <div className="kv seen-row"><span>Your wallet</span><span>Appears nowhere in it.</span></div>
-            <div className="kv seen-row"><span>Mine lasts until</span><span>{until(justLaunched.seat)}: claim fees and sell the dev buy before then</span></div>
-          </div>
+          <dl className="chain-sees">
+            <div><dt>Creator on chain</dt><dd>Your mine, a fresh address funded from Gloam's vault</dd></div>
+            <div><dt>Your wallet</dt><dd>Appears nowhere in it</dd></div>
+            <div><dt>Fees go to</dt><dd>Your mine, then your private balance when you claim</dd></div>
+            <div><dt>Mine lasts until</dt><dd>{until(justLaunched.seat)}</dd></div>
+          </dl>
         </section>
       )}
 
@@ -659,45 +679,49 @@ export function MontraPage() {
           {tab === "launches" && (
             <>
               <p className="muted small">
-                Each token was launched by its own mine: a fresh address that is Montra's creator and fee recipient. Claiming pays its own gas from the
-                fees{claimFloor !== null ? `, so it opens once a mine is owed about ${fmt(claimFloor, 5)} HYPE` : ""}. A new device finds your launches
-                and holdings again from the chain when you connect; the backup also covers ones made before that worked.
+                Each token was launched by its own mine, a fresh address only you control. Claiming pays its own gas from the fees
+                {claimFloor !== null ? `, so it opens once a mine is owed about ${fmt(claimFloor, 5)} HYPE` : ""}.
               </p>
               {!book.mines.length && <p className="muted small">No launches yet.</p>}
               {[...book.mines].reverse().map((m) => {
                 const v = mineView[m.token];
                 const c = cards[m.token];
                 const worth = !!v && claimFloor !== null && v.owed >= claimFloor;
+                const devHype = v && c ? Number(formatEther(v.dev)) * c.market.priceHype : 0;
                 return (
-                  <TokenCard
+                  <TokenSheet
                     key={m.token}
+                    token={m.token}
                     profile={c?.profile}
                     market={c?.market}
                     fallback={m}
                     usdPerHype={usdPerHype}
-                    badge={<a href={EXPLORER + m.seat.account} target="_blank" rel="noreferrer" className="muted small" title="Your mine">mine <code>{short(m.seat.account)}</code></a>}
-                    links={
-                      <>
-                        <a href={MONTRA_TOKEN + m.token} target="_blank" rel="noreferrer">On Montra</a>
-                        <a href={EXPLORER + m.token} target="_blank" rel="noreferrer">Explorer</a>
-                        <Copy text={m.token} label="Copy address" />
-                        {socialLinks(c?.profile)}
-                      </>
-                    }
+                    launchedAt={launchedAt[m.token]}
+                    maker={mineMaker(m)}
+                    extraLinks={tokenLinks(m.token)}
                   >
-                    <div className="tok-foot">
-                      <span className="num muted small">
-                        {v ? <>Fees owed <b style={{ color: "var(--text)" }}>{fmt(v.owed, 6)} HYPE</b>{v.dev > 0n ? <> · dev buy <b style={{ color: "var(--text)" }}>{num(Number(formatEther(v.dev)))} {m.symbol}</b>{c ? ` (≈ ${num(Number(formatEther(v.dev)) * c.market.priceHype)} HYPE)` : ""}</> : null}</> : <span className="shimmer" style={{ width: 160, height: 14 }} />}
-                      </span>
-                      <span className="tok-actions">
-                        <button className="btn small" disabled={busy} onClick={() => setMore(more?.seat === m.seat.account ? null : { seat: m.seat.account, amt: "0.1" })}>Buy more</button>
-                        <button className="btn small" disabled={busy || !worth} onClick={() => claimFees(m)}>{worth || !v ? "Claim fees" : "Not worth claiming yet"}</button>
-                        {!!v && v.dev > 0n && <button className="btn small" disabled={busy} onClick={() => sellDev(m)}>Sell dev buy</button>}
-                      </span>
+                    <div className="tk-mine">
+                      <div className="tok-foot">
+                        <span className="facts">
+                          {v ? (
+                            <>
+                              <span>Fees owed <b>{fmt(v.owed, 6)} HYPE</b></span>
+                              {v.dev > 0n ? <span>Dev buy <b>{num(Number(formatEther(v.dev)))} {m.symbol}</b>{c ? ` ≈ ${usdOrHype(devHype)}` : ""}</span> : null}
+                            </>
+                          ) : (
+                            <span className="shimmer" style={{ width: 160, height: 14 }} />
+                          )}
+                        </span>
+                        <span className="tok-actions">
+                          <button className="btn small" disabled={busy} onClick={() => setMore(more?.seat === m.seat.account ? null : { seat: m.seat.account, amt: "0.1" })}>Buy more</button>
+                          <button className="btn small" disabled={busy || !worth} onClick={() => claimFees(m)}>{worth || !v ? "Claim fees" : "Not worth claiming yet"}</button>
+                          {!!v && v.dev > 0n && <button className="btn small" disabled={busy} onClick={() => sellDev(m)}>Sell dev buy</button>}
+                        </span>
+                      </div>
+                      {moreRow(m.seat, m.token, m.symbol, false)}
+                      <SeatLife seat={m.seat} what="claim its fees and sell its dev buy" />
                     </div>
-                    {moreRow(m.seat, m.token, m.symbol, false)}
-                    <SeatLife seat={m.seat} what="claim its fees and sell its dev buy" />
-                  </TokenCard>
+                  </TokenSheet>
                 );
               })}
 
@@ -718,42 +742,46 @@ export function MontraPage() {
 
           {tab === "holdings" && (
             <>
-              <p className="muted small">Tokens you bought from fresh addresses. Each earns its holder rewards; claim them and sell into your private balance.</p>
-              {!openHoldings.length && <p className="muted small">No holdings yet.</p>}
-              {openHoldings.map((h) => {
-                const v = holdView[h.seat.account];
-                const c = cards[h.token];
-                const worth = !!v && claimFloor !== null && v.earned >= claimFloor;
-                return (
-                  <TokenCard
-                    key={h.seat.account}
-                    profile={c?.profile}
-                    market={c?.market}
-                    fallback={h}
-                    usdPerHype={usdPerHype}
-                    badge={<a href={EXPLORER + h.seat.account} target="_blank" rel="noreferrer" className="muted small" title="The seat holding it">seat <code>{short(h.seat.account)}</code></a>}
-                    links={
-                      <>
-                        <a href={MONTRA_TOKEN + h.token} target="_blank" rel="noreferrer">On Montra</a>
-                        <Copy text={h.token} label="Copy address" />
-                      </>
-                    }
-                  >
-                    <div className="tok-foot">
-                      <span className="num muted small">
-                        {v ? <>You hold <b style={{ color: "var(--text)" }}>{num(Number(formatEther(v.balance)))} {h.symbol}</b>{c ? ` (≈ ${num(Number(formatEther(v.balance)) * c.market.priceHype)} HYPE)` : ""} · rewards {fmt(v.earned, 6)} HYPE</> : <span className="shimmer" style={{ width: 160, height: 14 }} />}
-                      </span>
-                      <span className="tok-actions">
-                        <button className="btn small" disabled={busy} onClick={() => setMore(more?.seat === h.seat.account ? null : { seat: h.seat.account, amt: "0.1" })}>Buy more</button>
-                        <button className="btn small" disabled={busy || !worth} onClick={() => claimRewards(h)}>{worth || !v ? "Claim rewards" : "Rewards too small yet"}</button>
-                        <button className="btn small" disabled={busy} onClick={() => sell(h)}>Sell</button>
-                      </span>
-                    </div>
-                    {moreRow(h.seat, h.token, h.symbol, true)}
-                    <SeatLife seat={h.seat} what="sell it or claim its rewards" />
-                  </TokenCard>
-                );
-              })}
+              {!openHoldings.length && <p className="muted small">No holdings yet. Buy any Montra token privately above.</p>}
+              {openHoldings.length > 0 && (
+                <div className="tlist">
+                  {openHoldings.map((h) => {
+                    const v = holdView[h.seat.account];
+                    const c = cards[h.token];
+                    const worth = !!v && claimFloor !== null && v.earned >= claimFloor;
+                    const left = seatDaysLeft(h.seat);
+                    return (
+                      <TokenRow
+                        key={h.seat.account}
+                        token={h.token}
+                        profile={c?.profile}
+                        market={c?.market}
+                        fallback={h}
+                        usdPerHype={usdPerHype}
+                        balance={v ? Number(formatEther(v.balance)) : undefined}
+                        open={openRow === h.seat.account}
+                        onToggle={() => setOpenRow(openRow === h.seat.account ? null : h.seat.account)}
+                        warn={left <= 30 ? (left < 0 ? "seat ended" : `ends in ${left}d`) : undefined}
+                      >
+                        <span className="tok-actions">
+                          <button className="btn small" disabled={busy} onClick={() => setMore(more?.seat === h.seat.account ? null : { seat: h.seat.account, amt: "0.1" })}>Buy more</button>
+                          {v && v.earned > 0n ? (
+                            <button className="btn small" disabled={busy || !worth} onClick={() => claimRewards(h)}>
+                              {worth ? `Claim ${fmt(v.earned, 5)} HYPE rewards` : `Rewards ${fmt(v.earned, 6)} HYPE, too small yet`}
+                            </button>
+                          ) : null}
+                          <button className="btn small" disabled={busy} onClick={() => sell(h)}>Sell all</button>
+                          <a className="btn small" href={MONTRA_TOKEN + h.token} target="_blank" rel="noreferrer">On Montra</a>
+                        </span>
+                        {moreRow(h.seat, h.token, h.symbol, true)}
+                        <span className="muted small">
+                          Held by seat <Addr addr={h.seat.account} href={EXPLORER + h.seat.account} title="The fresh address holding it" /> · <SeatLife seat={h.seat} what="sell it or claim its rewards" />
+                        </span>
+                      </TokenRow>
+                    );
+                  })}
+                </div>
+              )}
             </>
           )}
         </div>

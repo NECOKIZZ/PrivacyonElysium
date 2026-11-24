@@ -643,3 +643,9 @@ export function imageSrc(uri: string): string {
 /** The image types Montra stores, and its size limit. */
 export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
 export const IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+
+/** When a mine's token launched (seconds), from its launch transaction's block. */
+export async function launchTime(pub: PublicClient, launchTx: Hex): Promise<number> {
+  const rc = await pub.getTransactionReceipt({ hash: launchTx });
+  return Number((await pub.getBlock({ blockNumber: rc.blockNumber })).timestamp);
+}
