@@ -259,3 +259,4 @@ code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
 .picker .what { flex: 1; min-width: 0; font-size: 13px; color: var(--soft); }
 .picker .what b { color: var(--text); }
 .linkbtn { appearance: none; border: 0; background: none; padding: 0; color: var(--signal); cursor: pointer; font: inherit; font-size: 13px; }
+.more-row { display: grid; gap: 6px; border-top: 1px solid var(--line); padding-top: 10px; }

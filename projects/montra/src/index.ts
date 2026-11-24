@@ -175,20 +175,54 @@ export async function openFundedSeat(core: GloamCore, net: bigint, plan: SeatPla
   const exclude = new Set<bigint>();
   const seat = await openSeat(core, { amount: grossFor(parts[0]), fallbackTo: plan.fallbackTo, exitAfter: exitAfterFor(days), game: label, exclude }, onStatus);
   plan.onSeat?.(seat);
-  for (let i = 1; i < parts.length; i++) {
-    onStatus(`Adding piece ${i + 1} of ${parts.length}`);
-    const note = await core.exactNote(HYPE, grossFor(parts[i]), onStatus, exclude);
-    exclude.add(note.commitment);
-    const s = await core.spendProof(note, seat.account, onStatus);
-    await core.config.submit({
-      kind: "unshield",
-      to: PRIVACY.gloamVault,
-      data: encodeFunctionData({ abi: VAULT_UNSHIELD, functionName: "unshield", args: [s.proof, s.root, s.nullifier, s.asset, seat.account, s.amount] }),
-    });
-  }
+  await addPieces(core, seat.account, parts.slice(1), exclude, onStatus, 2);
   await waitFunded(pub, seat, parts.reduce((a, b) => a + b, 0n));
   return seat;
 }
+
+/** Unshield more pieces straight into an address the account already owns (a seat): each arrives as its net amount. */
+async function addPieces(core: GloamCore, to: Address, parts: bigint[], exclude: Set<bigint>, onStatus: Status, first = 1): Promise<void> {
+  const total = parts.length + first - 1;
+  for (let i = 0; i < parts.length; i++) {
+    onStatus(total > 1 ? `Adding piece ${first + i} of ${total}` : "Moving HYPE from your private balance");
+    const note = await core.exactNote(HYPE, grossFor(parts[i]), onStatus, exclude);
+    exclude.add(note.commitment);
+    const s = await core.spendProof(note, to, onStatus);
+    await core.config.submit({
+      kind: "unshield",
+      to: PRIVACY.gloamVault,
+      data: encodeFunctionData({ abi: VAULT_UNSHIELD, functionName: "unshield", args: [s.proof, s.root, s.nullifier, s.asset, to, s.amount] }),
+    });
+  }
+}
+
+/**
+ * Buy more of a token into a seat you already have (a holding, or a mine buying more of its own token), paid from the
+ * private balance. The new HYPE goes to the same address, so on chain it reads as that address buying again: it
+ * links the buys to each other, never to the wallet. Recovery isn't affected (the seat is found by its first note).
+ */
+export async function buyMore(core: GloamCore, seat: Seat, token: Address, net: bigint, opts: { pieces?: bigint[]; maxSlippageBps?: number } = {}, onStatus: Status = () => {}): Promise<{ spent: bigint; bought: bigint }> {
+  const pub = core.config.publicClient as PublicClient;
+  if (seatDaysLeftOf(seat) < 1) throw new Error("This seat is at its end date: buy from a fresh one instead.");
+  const info = await tokenInfo(pub, token);
+  const { router } = await montraAddresses(pub);
+  const parts = opts.pieces?.length ? opts.pieces : [net];
+  const before = await pub.getBalance({ address: seat.account });
+  const held = (await pub.readContract({ address: token, abi: ABI.token, functionName: "balanceOf", args: [seat.account] })) as bigint;
+  await addPieces(core, seat.account, parts, new Set(), onStatus);
+  await waitFunded(pub, seat, before + net);
+  const out = await quote(pub, info, true, net);
+  const minOut = (out * BigInt(10_000 - (opts.maxSlippageBps ?? 1_000))) / 10_000n;
+  onStatus(`Buying more ${info.symbol} from the same address`);
+  await seatCall(core, seat, {
+    target: router,
+    value: net,
+    data: encodeFunctionData({ abi: ABI.router, functionName: "swapExactIn", args: [{ key: info.key, zeroForOne: true, amountIn: net, minAmountOut: minOut, recipient: seat.account, deadline: await deadline(pub) }] }),
+  });
+  const now = (await pub.readContract({ address: token, abi: ABI.token, functionName: "balanceOf", args: [seat.account] })) as bigint;
+  return { spent: net, bought: now - held };
+}
+const seatDaysLeftOf = (seat: Seat) => (Number(seat.key.exitAfter) - Date.now() / 1000) / 86_400;
 
 const VAULT_UNSHIELD = parseAbi(["function unshield(bytes proof, bytes32 root, bytes32 nullifier, address asset, address to, uint256 amount)"]);
 

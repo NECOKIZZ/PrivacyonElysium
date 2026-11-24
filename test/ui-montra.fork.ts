@@ -71,13 +71,17 @@ relay.listen(RELAY);
 
 // ── Montra's image and metadata store: a stand-in behind this site's real /api/montra-upload ─────────
 const stored: { image?: number; doc?: Record<string, string> } = {};
-const IMAGE_URI = `http://127.0.0.1:${SITE}/projects/montra/logo.png`; // a real image the browser can load
+const images: Buffer[] = [];
+const imageUri = (n: number) => `http://127.0.0.1:${STORE}/img/${n}.png`; // served back, so the browser loads it
+const IMAGE_URI = imageUri(0);
 const METADATA_URI = "ipfs://bafkreitestmetadatadocument";
 createServer(async (req, res) => {
   const chunks: Buffer[] = [];
   for await (const c of req) chunks.push(c as Buffer);
+  const img = req.url?.match(/^\/img\/(\d+)\.png$/);
+  if (img && images[+img[1]]) return res.setHeader("content-type", "image/png"), res.end(images[+img[1]]);
   res.setHeader("content-type", "application/json");
-  if (req.url === "/api/metadata/image") return (stored.image = Buffer.concat(chunks).length), res.end(JSON.stringify({ uri: IMAGE_URI }));
+  if (req.url === "/api/metadata/image") return images.push(Buffer.concat(chunks)), (stored.image = images.at(-1)!.length), res.end(JSON.stringify({ uri: imageUri(images.length - 1) }));
   if (req.url === "/api/metadata") return (stored.doc = JSON.parse(Buffer.concat(chunks).toString())), res.end(JSON.stringify({ uri: METADATA_URI }));
   res.statusCode = 404;
   res.end("{}");
@@ -127,7 +131,7 @@ const wallet = `(() => {
 
 const proxy = process.env.HTTPS_PROXY ? { server: process.env.HTTPS_PROXY, bypass: "127.0.0.1,localhost" } : undefined;
 const browser = await chromium.launch({ proxy });
-const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+const page = await browser.newPage({ viewport: { width: 1280, height: 1000 }, deviceScaleFactor: 2 });
 await page.addInitScript(wallet);
 page.on("pageerror", (e) => console.log("  pageerror:", e.message));
 page.on("console", (m) => { if (/sweep|fallback|montra|error/i.test(m.text())) console.log("  console:", m.text().slice(0, 400)); });
@@ -185,8 +189,32 @@ try {
   await page.locator('input[type="file"][accept^="image/"]').setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("hello") });
   await page.getByText("Use a PNG, JPEG, WebP or GIF").waitFor({ timeout: 30_000 });
   check(true, "a file that isn't an image is refused");
-  await page.locator('input[type="file"][accept^="image/"]').setInputFiles("apps/web/public/projects/montra/logo.png");
-  await page.getByText("logo.png").waitFor({ timeout: 30_000 });
+  // two square token images, drawn in the page
+  const draw = (bg: string, fg: string, text: string) =>
+    page.evaluate(([bg, fg, text]) => {
+      const c = document.createElement("canvas");
+      c.width = c.height = 512;
+      const g = c.getContext("2d")!;
+      const grad = g.createLinearGradient(0, 0, 512, 512);
+      grad.addColorStop(0, bg);
+      grad.addColorStop(1, "#10161a");
+      g.fillStyle = grad;
+      g.fillRect(0, 0, 512, 512);
+      g.fillStyle = fg;
+      g.beginPath();
+      g.arc(256, 256, 150, 0, Math.PI * 2);
+      g.fill();
+      g.fillStyle = bg;
+      g.font = "800 120px sans-serif";
+      g.textAlign = "center";
+      g.textBaseline = "middle";
+      g.fillText(text, 256, 266);
+      return c.toDataURL("image/png").split(",")[1];
+    }, [bg, fg, text]).then((b) => Buffer.from(b, "base64"));
+  const imgA = await draw("#2d7388", "#f8f7f4", "UI");
+  const imgB = await draw("#c9852e", "#f8f7f4", "2");
+  await page.locator('input[type="file"][accept^="image/"]').setInputFiles({ name: "uitst.png", mimeType: "image/png", buffer: imgA });
+  await page.getByText("uitst.png").waitFor({ timeout: 30_000 });
   check(/\d+×\d+/.test(await page.locator(".picker").innerText()), `a real image is accepted: ${(await page.locator(".picker .what").innerText()).replace(/\n/g, " ")}`);
 
   await page.getByRole("button", { name: "Launch UITST privately" }).click({ timeout: 600_000 });
@@ -225,9 +253,43 @@ try {
   await pub.waitForTransactionReceipt({ hash: await rpc("eth_sendTransaction", [{ from: BOB, to: addrs.router, data: buy, value: toHex(parseEther("30")), gas: "0x1c9c380" }]) });
   check(true, "a trader bought UITST with 30 HYPE");
 
+  log("Launch a second token, SECND, with its own image");
+  await page.getByPlaceholder("My Token").fill("Second Test");
+  await page.getByPlaceholder("TICKER").fill("SECND");
+  await page.getByPlaceholder("One line about it").fill("The second private launch, for the screenshots.");
+  await page.getByLabel("Dev buy").fill("0.2");
+  await page.locator('input[type="file"][accept^="image/"]').setInputFiles({ name: "secnd.png", mimeType: "image/png", buffer: imgB });
+  await page.getByText("secnd.png").waitFor({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Launch SECND privately" }).click({ timeout: 600_000 });
+  await page.getByTestId("launched").filter({ hasText: "$SECND" }).waitFor({ timeout: 900_000 });
+  check(true, "the second launch opens its own result card");
+  for (let i = 0; i < 60 && (await page.locator(".panel .tok-card").count()) < 2; i++) await sleep(1000);
+  check((await page.locator(".panel .tok-card").count()) === 2, "Your launches lists both tokens");
+  for (let i = 0; i < 60 && (await page.locator(".panel .tok-card .tok-logo img").count()) < 2; i++) await sleep(1000);
+  const loadedLogos = await page.locator(".panel .tok-card .tok-logo img").evaluateAll((xs) => xs.filter((i) => (i as HTMLImageElement).naturalWidth > 0).length);
+  check(loadedLogos === 2, `each with its own image (${loadedLogos} loaded)`);
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: `${OUT}/montra-launched-2.png`, fullPage: false });
+  await page.getByTestId("launched").screenshot({ path: `${OUT}/montra-launched-card.png` });
+  await page.locator(".panel", { has: page.getByRole("tab") }).screenshot({ path: `${OUT}/montra-launches-tab.png` });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(800);
+  await page.locator(".panel", { has: page.getByRole("tab") }).screenshot({ path: `${OUT}/montra-launches-phone.png` });
+  await page.setViewportSize({ width: 1280, height: 1000 });
+
+  log("Buy more UITST from its own mine, from the private balance");
+  const mineHeld = async () => (await pub.readContract({ address: token, abi: ABI.token, functionName: "balanceOf", args: [mineSeat] })) as bigint;
+  const heldBefore = await mineHeld();
+  await page.locator(".panel .tok-card", { hasText: "$UITST" }).getByRole("button", { name: "Buy more" }).click();
+  await page.getByLabel("HYPE to spend on more UITST").fill("0.1");
+  await page.locator(".panel .tok-card", { hasText: "$UITST" }).getByRole("button", { name: /^Buy · / }).click();
+  const more1 = await waitStatus(/more UITST with/, 900_000);
+  check((await mineHeld()) > heldBefore, `${more1} (mine held ${heldBefore} → ${await mineHeld()})`);
+
   log("Claim the creator fees from the page");
   const before = await balance();
-  const claimBtn = page.getByRole("button", { name: "Claim fees", exact: true });
+  const uitstCard = page.locator(".panel .tok-card", { hasText: "$UITST" });
+  const claimBtn = uitstCard.getByRole("button", { name: "Claim fees", exact: true });
   for (let i = 0; i < 90 && !(await claimBtn.isEnabled().catch(() => false)); i++) await sleep(1000);
   check(await claimBtn.isEnabled(), "Claim fees is open once the fees cover their own gas");
   await claimBtn.click();
@@ -238,10 +300,18 @@ try {
 
   log("Hold UITST privately, then sell");
   await page.getByPlaceholder("0x…").last().fill(token);
-  await page.getByLabel("HYPE to spend").fill("0.2");
+  await page.getByLabel("HYPE to spend", { exact: true }).fill("0.2");
   await page.getByRole("button", { name: /Buy privately/ }).click();
   const bought = await waitStatus(/Bought UITST from a fresh seat/, 900_000);
   check(true, bought);
+  const holdCard = page.locator(".panel .tok-card", { hasText: "$UITST" });
+  await holdCard.getByRole("button", { name: "Buy more" }).click();
+  await page.getByLabel("HYPE to spend on more UITST").fill("0.1");
+  await holdCard.getByRole("button", { name: /^Buy · / }).click();
+  const more2 = await waitStatus(/more UITST with/, 900_000);
+  check(true, `the holding bought more into the same seat: ${more2}`);
+  await page.waitForTimeout(1500);
+  await page.locator(".panel", { has: page.getByRole("tab") }).screenshot({ path: `${OUT}/montra-holdings-tab.png` });
   const sellBtn = page.getByRole("button", { name: "Sell", exact: true });
   await sellBtn.waitFor({ timeout: 120_000 });
   await sellBtn.click();

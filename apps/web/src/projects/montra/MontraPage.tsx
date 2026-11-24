@@ -3,7 +3,7 @@ import { formatEther, isAddress, keccak256, parseEther, type Address, type Walle
 import { fromJson, toJson } from "@cloakely/sdk";
 import { SEAT_DAYS, grossFor, recoverSeats, returnSeat, seatDaysLeft, splitSizes, type Seat, type SeatDays } from "@privacy-for-elysium/eloscape";
 import {
-  BUILDER_CODE, buyPrivately, claimHoldingRewards, claimMineFees, holdingView, launchFromMine, launchRows, mineOwed, montraSeatLabels, payoutCost, recoverMontra, sellPrivately, tokenCard,
+  BUILDER_CODE, buyMore, buyPrivately, claimHoldingRewards, claimMineFees, holdingView, launchFromMine, launchRows, mineOwed, montraSeatLabels, payoutCost, recoverMontra, sellPrivately, tokenCard,
   type Holding, type LaunchRow, type Mine, type TokenMarket, type TokenProfile,
 } from "@privacy-for-elysium/montra";
 import { Copy, ImagePicker, TokenCard, num, socialLinks, uploadImage, uploadMetadata, useHypeUsd, type PickedImage } from "./tokenui";
@@ -87,6 +87,7 @@ export function MontraPage() {
   const [cards, setCards] = useState<Record<string, { profile: TokenProfile; market: TokenMarket }>>({});
   const [justLaunched, setJustLaunched] = useState<Mine | null>(null);
   const [tab, setTab] = useState<"launches" | "holdings">("launches");
+  const [more, setMore] = useState<{ seat: string; amt: string } | null>(null);
   const usdPerHype = useHypeUsd();
 
   // launch form
@@ -304,6 +305,38 @@ export function MontraPage() {
       save((b) => ({ ...b, holdings: b.holdings.map((x) => (x.seat.account === h.seat.account ? { ...x, done: true } : x)) }));
       setStatus(`Sold: about ${fmt(r.hypeOut)} HYPE back in your private balance.`);
     });
+
+  let moreWei = 0n;
+  try {
+    moreWei = parseEther(more?.amt || "0");
+  } catch {}
+  const moreSplit = splitSizes(moreWei);
+  const moreNet = moreWei - moreSplit.left;
+  const moreCost = moreSplit.pieces.reduce((a, x) => a + grossFor(x), 0n);
+  const canMore = !!p && !busy && moreNet > 0n && (bal ?? 0n) >= moreCost;
+  const buyMoreInto = (seat: Seat, token: Address, symbol: string, isHolding: boolean) =>
+    run(`Buying more ${symbol}`, async () => {
+      const r = await buyMore(p!.core, seat, token, moreNet, { pieces: moreSplit.pieces.length > 1 ? moreSplit.pieces : undefined }, setStatus);
+      if (isHolding) save((b) => ({ ...b, holdings: b.holdings.map((x) => (x.seat.account === seat.account ? { ...x, spent: x.spent + r.spent } : x)) }));
+      setMore(null);
+      setStatus(`Bought ${num(Number(formatEther(r.bought)))} more ${symbol} with ${fmt(r.spent)} HYPE from your private balance, into the same address.`);
+    });
+  const moreRow = (seat: Seat, token: Address, symbol: string, isHolding: boolean) =>
+    more?.seat !== seat.account ? null : (
+      <div className="more-row">
+        <div className="sheet" style={{ marginTop: 0 }}>
+          <input className="input" autoFocus inputMode="decimal" placeholder="HYPE to spend" aria-label={`HYPE to spend on more ${symbol}`} value={more.amt} onChange={(e) => setMore({ seat: seat.account, amt: e.target.value })} />
+          <button className="btn primary" disabled={!canMore} onClick={() => buyMoreInto(seat, token, symbol, isHolding)}>
+            {moreCost > 0n ? `Buy · ${fmt(moreCost, 6)} HYPE` : "Buy"}
+          </button>
+        </div>
+        <div className="muted small">
+          Paid from your private balance{moreSplit.pieces.length > 1 ? `, in ${moreSplit.pieces.length} standard pieces` : ""}, into the same address
+          {isHolding ? " as this holding" : ": your mine. On chain it reads as the creator buying more"}. It links these buys to each other, never to your wallet.
+          {(bal ?? 0n) < moreCost ? <span className="err"> Not enough in your private balance.</span> : null}
+        </div>
+      </div>
+    );
 
   const returnUnfinished = (s: Seat) =>
     run("Returning it to your private balance", async () => {
@@ -657,10 +690,12 @@ export function MontraPage() {
                         {v ? <>Fees owed <b style={{ color: "var(--text)" }}>{fmt(v.owed, 6)} HYPE</b>{v.dev > 0n ? <> · dev buy <b style={{ color: "var(--text)" }}>{num(Number(formatEther(v.dev)))} {m.symbol}</b>{c ? ` (≈ ${num(Number(formatEther(v.dev)) * c.market.priceHype)} HYPE)` : ""}</> : null}</> : <span className="shimmer" style={{ width: 160, height: 14 }} />}
                       </span>
                       <span className="tok-actions">
+                        <button className="btn small" disabled={busy} onClick={() => setMore(more?.seat === m.seat.account ? null : { seat: m.seat.account, amt: "0.1" })}>Buy more</button>
                         <button className="btn small" disabled={busy || !worth} onClick={() => claimFees(m)}>{worth || !v ? "Claim fees" : "Not worth claiming yet"}</button>
                         {!!v && v.dev > 0n && <button className="btn small" disabled={busy} onClick={() => sellDev(m)}>Sell dev buy</button>}
                       </span>
                     </div>
+                    {moreRow(m.seat, m.token, m.symbol, false)}
                     <SeatLife seat={m.seat} what="claim its fees and sell its dev buy" />
                   </TokenCard>
                 );
@@ -709,10 +744,12 @@ export function MontraPage() {
                         {v ? <>You hold <b style={{ color: "var(--text)" }}>{num(Number(formatEther(v.balance)))} {h.symbol}</b>{c ? ` (≈ ${num(Number(formatEther(v.balance)) * c.market.priceHype)} HYPE)` : ""} · rewards {fmt(v.earned, 6)} HYPE</> : <span className="shimmer" style={{ width: 160, height: 14 }} />}
                       </span>
                       <span className="tok-actions">
+                        <button className="btn small" disabled={busy} onClick={() => setMore(more?.seat === h.seat.account ? null : { seat: h.seat.account, amt: "0.1" })}>Buy more</button>
                         <button className="btn small" disabled={busy || !worth} onClick={() => claimRewards(h)}>{worth || !v ? "Claim rewards" : "Rewards too small yet"}</button>
                         <button className="btn small" disabled={busy} onClick={() => sell(h)}>Sell</button>
                       </span>
                     </div>
+                    {moreRow(h.seat, h.token, h.symbol, true)}
                     <SeatLife seat={h.seat} what="sell it or claim its rewards" />
                   </TokenCard>
                 );
