@@ -44,6 +44,8 @@ export const MINE_DAYS = 365;
 export const HOLDING_DAYS = 180;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** A trade's deadline from the chain's own clock (a device clock can be off), ten minutes ahead. */
+const deadline = async (pub: PublicClient) => (await pub.getBlock()).timestamp + 600n;
 const DAY = 86_400n;
 
 /**
@@ -394,7 +396,7 @@ export async function buyPrivately(core: GloamCore, token: Address, net: bigint,
   await seatCall(core, s, {
     target: router,
     value: net,
-    data: encodeFunctionData({ abi: ABI.router, functionName: "swapExactIn", args: [{ key: info.key, zeroForOne: true, amountIn: net, minAmountOut: minOut, recipient: s.account, deadline: BigInt(Math.floor(Date.now() / 1000) + 600) }] }),
+    data: encodeFunctionData({ abi: ABI.router, functionName: "swapExactIn", args: [{ key: info.key, zeroForOne: true, amountIn: net, minAmountOut: minOut, recipient: s.account, deadline: await deadline(pub) }] }),
   });
   return { seat: s, token, symbol: info.symbol, name: info.name, spent: net };
 }
@@ -442,7 +444,7 @@ export async function sellPrivately(core: GloamCore, h: Holding, viaReceive: () 
     await seatCall(core, h.seat, { target: h.token, data: encodeFunctionData({ abi: ABI.token, functionName: "approve", args: [router, balance] }) });
     await seatCall(core, h.seat, {
       target: router,
-      data: encodeFunctionData({ abi: ABI.router, functionName: "swapExactIn", args: [{ key: info.key, zeroForOne: false, amountIn: balance, minAmountOut: minOut, recipient: h.seat.account, deadline: BigInt(Math.floor(Date.now() / 1000) + 600) }] }),
+      data: encodeFunctionData({ abi: ABI.router, functionName: "swapExactIn", args: [{ key: info.key, zeroForOne: false, amountIn: balance, minAmountOut: minOut, recipient: h.seat.account, deadline: await deadline(pub) }] }),
     });
     hypeOut = out;
   }

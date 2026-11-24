@@ -7,3 +7,4 @@ dist
 .DS_Store
 dist-ui-test
 test/shots
+dist-ui-montra

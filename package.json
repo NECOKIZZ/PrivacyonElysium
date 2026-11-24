@@ -12,7 +12,8 @@
     "typecheck": "tsc -p projects/eloscape --noEmit && tsc -p projects/montra --noEmit",
     "test:fork": "NODE_USE_ENV_PROXY=1 tsx test/eloscape.fork.ts",
     "test:ui": "mkdir -p test/shots && NODE_USE_ENV_PROXY=1 NODE_PATH=$(npm root -g) tsx test/ui.fork.ts",
-    "test:montra": "NODE_USE_ENV_PROXY=1 tsx test/montra.fork.ts"
+    "test:montra": "NODE_USE_ENV_PROXY=1 tsx test/montra.fork.ts",
+    "test:ui:montra": "mkdir -p test/shots && NODE_USE_ENV_PROXY=1 NODE_PATH=$(npm root -g) tsx test/ui-montra.fork.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
