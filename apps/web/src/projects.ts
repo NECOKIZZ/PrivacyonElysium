@@ -27,4 +27,14 @@ export const PROJECTS: ProjectCard[] = [
     status: "live",
     site: "https://eloscape.com",
   },
+  {
+    id: "montra",
+    name: "Montra",
+    logo: "/projects/montra/logo.png",
+    logoBg: "#0d0d0f",
+    tagline: "Launch and hold tokens, privately.",
+    blurb: "Launch on Montra without showing your wallet as the dev, and hold any Montra token privately with its holder rewards.",
+    status: "live",
+    site: "https://montramarkets.xyz",
+  },
 ];

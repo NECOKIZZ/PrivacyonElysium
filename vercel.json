@@ -48,6 +48,14 @@
     {
       "source": "/eloscape/",
       "destination": "/index.html"
+    },
+    {
+      "source": "/montra",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/montra/",
+      "destination": "/index.html"
     }
   ]
 }

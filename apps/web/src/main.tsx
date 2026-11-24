@@ -9,6 +9,7 @@ import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Hub } from "./pages/Hub";
 import { EloscapePage } from "./projects/eloscape/EloscapePage";
+import { MontraPage } from "./projects/montra/MontraPage";
 
 function useRoute() {
   // old links (/#/eloscape) still land on the right page, at the clean address
@@ -26,6 +27,7 @@ function useRoute() {
 function App() {
   const route = useRoute();
   if (route === "eloscape") return <EloscapePage />;
+  if (route === "montra") return <MontraPage />;
   return <Hub />;
 }
 
