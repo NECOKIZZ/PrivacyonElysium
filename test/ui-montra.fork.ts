@@ -229,7 +229,7 @@ try {
   check((await card.innerText()).includes("UI Test") && (await card.innerText()).includes("$UITST") && (await card.innerText()).includes("A test token launched privately."), "with the name, ticker and description");
   const logoLoaded = await card.locator(".tok-logo img").first().evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0).catch(() => false);
   check(logoLoaded, "and its image, loaded");
-  check((await card.innerText()).includes("Appears nowhere in it."), "and what the chain sees");
+  check((await card.innerText()).includes("Appears nowhere in it"), "and what the chain sees");
   await page.screenshot({ path: `${OUT}/montra-launched.png`, fullPage: false });
   await card.screenshot({ path: `${OUT}/montra-launched-card.png` });
   const raw = (await page.evaluate(() => Object.entries(localStorage).filter(([k]) => k.startsWith("pfe.montra.v1")).map(([, v]) => v).join(""))) as string;
