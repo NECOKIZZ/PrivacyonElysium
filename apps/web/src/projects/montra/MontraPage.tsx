@@ -14,7 +14,6 @@ import { fallbackOf, privateHype, receiveRoute, sweepFallbacks, sweepSeatFallbac
 const EXPLORER = "https://elysium.kinetiq.xyz/explorer/address/";
 const MONTRA_TOKEN = "https://montramarkets.xyz/token/";
 const TX = "https://elysium.kinetiq.xyz/explorer/tx/";
-const FOMO = "https://fomo.family/tokens/elysium/";
 /** Our own slot in a creator's fee split (Montra allows at most 20%). Off until the payout wallet is chosen. */
 const BUILDER_FEE_TO = import.meta.env.VITE_BUILDER_FEE_TO as Address | undefined;
 const BUILDER_FEE_BPS = Number(import.meta.env.VITE_BUILDER_FEE_BPS ?? 0);
@@ -93,16 +92,15 @@ export function MontraPage() {
   const [launchedAt, setLaunchedAt] = useState<Record<string, number>>({});
   const usdOrHype = (hype: number) => (usdPerHype ? `$${num(hype * usdPerHype)}` : `${num(hype)} HYPE`);
   const mineMaker = (m: Mine) => ({ label: "by your mine", addr: m.seat.account, href: EXPLORER + m.seat.account, title: "Your mine: a fresh address only you control, funded from Gloam's vault" });
+  const montraLink = (token: string) => (
+    <a className="ilink" href={MONTRA_TOKEN + token} target="_blank" rel="noreferrer">
+      <img src="/projects/montra/logo.png" alt="" />
+      montra
+    </a>
+  );
   const tokenLinks = (token: string, launchTx?: string) => (
     <>
-      <a className="ilink" href={MONTRA_TOKEN + token} target="_blank" rel="noreferrer">
-        <img src="/projects/montra/logo.png" alt="" />
-        montra
-      </a>
-      <a className="ilink" href={FOMO + token} target="_blank" rel="noreferrer" title="This token on FOMO">
-        {Icon.flame}
-        fomo
-      </a>
+      {montraLink(token)}
       <a className="ilink" href={launchTx ? TX + launchTx : EXPLORER + token} target="_blank" rel="noreferrer">
         {Icon.out}
         {launchTx ? "launch tx" : "explorer"}
@@ -771,7 +769,7 @@ export function MontraPage() {
                             </button>
                           ) : null}
                           <button className="btn small" disabled={busy} onClick={() => sell(h)}>Sell all</button>
-                          <a className="btn small" href={MONTRA_TOKEN + h.token} target="_blank" rel="noreferrer">On Montra</a>
+                          {montraLink(h.token)}
                         </span>
                         {moreRow(h.seat, h.token, h.symbol, true)}
                         <span className="muted small">

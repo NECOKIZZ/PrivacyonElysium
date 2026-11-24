@@ -329,3 +329,7 @@ code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
 @media (max-width: 640px) { .trow-line { grid-template-columns: 36px minmax(0, 1fr) 96px 28px; } .trow-price { display: none; } .trow-body { padding-left: 2px; } }
 .trow-name > span { overflow: hidden; }
 @media (max-width: 640px) { .trow-name .addr > span, .trow-name .addr > a { display: none; } }
+/* the token's own picture, unframed; only the letter fallback gets a soft disc */
+.tok-logo:not(.empty) { background: none; border: 0; }
+.tok-logo.sq:not(.empty) { border-radius: 10px; }
+.tok-logo.sq.empty { border-radius: 50%; }
