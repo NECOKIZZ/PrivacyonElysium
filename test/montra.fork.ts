@@ -183,9 +183,9 @@ try {
   const found = await recoverSeats(B.cores[0] as GloamCore, { labels: await montraSeatLabels(pub), receiveAddress: (n) => B.receiveAddress(n), logChunk: 50_000n });
   const back = await recoverMontra(pub, found);
   check(back.mines.some((m) => m.token === m1.token) && back.mines.some((m) => m.token === m2.token), `both mines found again from the chain (${back.mines.map((m) => m.symbol).join(", ")})`);
-  check(back.holdings.some((x) => x.seat.account === h.seat.account), "the holding found again from the chain");
+  check(back.holdings.some((x) => x.seat.account.toLowerCase() === h.seat.account.toLowerCase()), "the holding found again from the chain");
   const r1 = back.mines.find((m) => m.token === m1.token)!;
-  check(r1.seat.key.exitAfter === m1.seat.key.exitAfter && r1.seat.account === m1.seat.account, "the recovered mine has the same key: same address, same end date");
+  check(r1.seat.key.exitAfter === m1.seat.key.exitAfter && r1.seat.account.toLowerCase() === m1.seat.account.toLowerCase(), "the recovered mine has the same key: same address, same end date");
   const r2 = back.mines.find((m) => m.token === m2.token)!;
   check(r2.splitter?.toLowerCase() === m2.splitter?.toLowerCase(), "the recovered split mine knows its splitter");
   log("   Bob trades PRIV again; the new device claims the mine's fees");

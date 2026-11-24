@@ -12,7 +12,7 @@
  * its block. Trying the few possible keys (apps × lengths × the day around that block) until one gives exactly that
  * address proves it is the player's seat. Seats opened before this scheme still need the device's records or a backup.
  */
-import { pad, type Address, type Hex, type PublicClient } from "viem";
+import { getAddress, pad, type Address, type Hex, type PublicClient } from "viem";
 import { CLOAK_GLOAM_BIDS_ABI, type GloamBidKey, type GloamCore } from "@cloakely/sdk";
 import { privateKeyToAccount } from "viem/accounts";
 import { HYPE, PRIVACY } from "./config.js";
@@ -78,7 +78,7 @@ export async function recoverSeats(
         method: "eth_getLogs",
         params: [{ address: PRIVACY.gloamVault, topics: [UNSHIELD_TOPIC, some], fromBlock: `0x${from.toString(16)}`, toBlock: `0x${to.toString(16)}` }],
       } as never) as { topics: Hex[]; blockNumber: Hex }[];
-      for (const l of logs) hits.push({ nullifier: l.topics[1], to: `0x${l.topics[3].slice(26)}` as Address, block: BigInt(l.blockNumber) });
+      for (const l of logs) hits.push({ nullifier: l.topics[1], to: getAddress(`0x${l.topics[3].slice(26)}`), block: BigInt(l.blockNumber) });
     }
   }
   if (!hits.length) return [];
