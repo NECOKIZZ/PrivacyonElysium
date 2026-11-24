@@ -18,7 +18,7 @@ import { parseEther, toHex } from "viem";
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright") as typeof import("playwright");
 
-const FORK = 8592, RELAY = 8788, SITE = 4175;
+const FORK = 8592, RELAY = 8788, SITE = 4175, UPLOAD = 8789, STORE = 8790;
 const RPC = `http://127.0.0.1:${FORK}`;
 const ALICE = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"; // anvil #1 (an unlocked dev account on the fork)
 const RELAYER_KEY = "0xdbda1821b80551c9d65939329250298aa3472ba22feea921c0cf5d620ea67b97" as Hex; // anvil #8
@@ -69,12 +69,39 @@ const relay = createServer(async (req, res) => {
 });
 relay.listen(RELAY);
 
+// ── Montra's image and metadata store: a stand-in behind this site's real /api/montra-upload ─────────
+const stored: { image?: number; doc?: Record<string, string> } = {};
+const IMAGE_URI = `http://127.0.0.1:${SITE}/projects/montra/logo.png`; // a real image the browser can load
+const METADATA_URI = "ipfs://bafkreitestmetadatadocument";
+createServer(async (req, res) => {
+  const chunks: Buffer[] = [];
+  for await (const c of req) chunks.push(c as Buffer);
+  res.setHeader("content-type", "application/json");
+  if (req.url === "/api/metadata/image") return (stored.image = Buffer.concat(chunks).length), res.end(JSON.stringify({ uri: IMAGE_URI }));
+  if (req.url === "/api/metadata") return (stored.doc = JSON.parse(Buffer.concat(chunks).toString())), res.end(JSON.stringify({ uri: METADATA_URI }));
+  res.statusCode = 404;
+  res.end("{}");
+}).listen(STORE);
+process.env.MONTRA_API = `http://127.0.0.1:${STORE}`;
+const { POST: uploadFn } = await import("../api/montra-upload.js");
+createServer(async (req, res) => {
+  res.setHeader("access-control-allow-origin", "*");
+  res.setHeader("access-control-allow-headers", "content-type");
+  if (req.method === "OPTIONS") return res.end();
+  const chunks: Buffer[] = [];
+  for await (const c of req) chunks.push(c as Buffer);
+  const r: Response = await uploadFn(new Request(`http://127.0.0.1:${UPLOAD}${req.url}`, { method: "POST", headers: req.headers as Record<string, string>, body: Buffer.concat(chunks) }));
+  res.statusCode = r.status;
+  res.setHeader("content-type", "application/json");
+  res.end(await r.text());
+}).listen(UPLOAD);
+
 let stop = false;
 const oracle = Promise.resolve();
 
 // ── the site, built against the fork ────────────────────────────────────────
 log("Building the site against the fork");
-execSync(`npx vite build --outDir dist-ui-montra`, { cwd: "apps/web", env: { ...process.env, VITE_RPC_URL: RPC, VITE_RELAY_URL: `http://127.0.0.1:${RELAY}` }, stdio: "ignore" });
+execSync(`npx vite build --outDir dist-ui-montra`, { cwd: "apps/web", env: { ...process.env, VITE_RPC_URL: RPC, VITE_RELAY_URL: `http://127.0.0.1:${RELAY}`, VITE_MONTRA_UPLOAD: `http://127.0.0.1:${UPLOAD}/api/montra-upload` }, stdio: "ignore" });
 procs.push(spawn("npx", ["vite", "preview", "--outDir", "dist-ui-montra", "--port", String(SITE), "--strictPort"], { cwd: "apps/web", stdio: "ignore" }));
 await sleep(3000);
 
@@ -146,15 +173,46 @@ try {
   await page.getByPlaceholder("TICKER").fill("UITST");
   await page.getByLabel("Dev buy").fill("0.1");
   await page.getByRole("button", { name: "25%", exact: true }).click();
+  await page.getByPlaceholder("One line about it").fill("A test token launched privately.");
+  await page.getByPlaceholder("Website").fill("https://example.com");
+
+  log("The image is checked before launch");
+  await page.getByRole("button", { name: "Use a link instead" }).click();
+  await page.getByPlaceholder("https://… or ipfs://…").fill(`http://127.0.0.1:${SITE}/montra`); // a web page, like a share link
+  await page.getByText("doesn't open as an image").waitFor({ timeout: 30_000 });
+  check(await page.getByRole("button", { name: "Launch UITST privately" }).isDisabled(), "a link that isn't an image is refused, and Launch stays off");
+  await page.getByRole("button", { name: "Upload a file instead" }).click();
+  await page.locator('input[type="file"][accept^="image/"]').setInputFiles({ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("hello") });
+  await page.getByText("Use a PNG, JPEG, WebP or GIF").waitFor({ timeout: 30_000 });
+  check(true, "a file that isn't an image is refused");
+  await page.locator('input[type="file"][accept^="image/"]').setInputFiles("apps/web/public/projects/montra/logo.png");
+  await page.getByText("logo.png").waitFor({ timeout: 30_000 });
+  check(/\d+×\d+/.test(await page.locator(".picker").innerText()), `a real image is accepted: ${(await page.locator(".picker .what").innerText()).replace(/\n/g, " ")}`);
+
   await page.getByRole("button", { name: "Launch UITST privately" }).click({ timeout: 600_000 });
-  const launched = await waitStatus(/Launched UITST/, 900_000);
-  check(true, launched);
+  const card = page.getByTestId("launched");
+  await card.waitFor({ timeout: 900_000 });
+  check(true, "the launch opens its result card");
+  check(!!stored.image && stored.doc?.name === "UI Test" && stored.doc?.symbol === "UITST" && stored.doc?.image === IMAGE_URI && stored.doc?.website === "https://example.com", `the image (${stored.image} bytes) and the details went to Montra's store first: ${JSON.stringify(stored.doc)}`);
+  await card.getByText("Market cap").waitFor();
+  for (let i = 0; i < 60 && /—|^\s*$/.test(await card.locator(".tok-stats .v").first().innerText()); i++) await sleep(1000);
+  const statsText = (await card.locator(".tok-stats").innerText()).replace(/\n/g, " ");
+  check(/Price .*HYPE/.test(statsText) && /Market cap .*HYPE/.test(statsText) && /Liquidity .*HYPE/.test(statsText), `the card shows price, market cap and liquidity: ${statsText}`);
+  check((await card.innerText()).includes("UI Test") && (await card.innerText()).includes("$UITST") && (await card.innerText()).includes("A test token launched privately."), "with the name, ticker and description");
+  const logoLoaded = await card.locator(".tok-logo img").first().evaluate((i: HTMLImageElement) => i.complete && i.naturalWidth > 0).catch(() => false);
+  check(logoLoaded, "and its image, loaded");
+  check((await card.innerText()).includes("Appears nowhere in it."), "and what the chain sees");
+  await page.screenshot({ path: `${OUT}/montra-launched.png`, fullPage: false });
+  await card.screenshot({ path: `${OUT}/montra-launched-card.png` });
   const raw = (await page.evaluate(() => Object.entries(localStorage).filter(([k]) => k.startsWith("pfe.montra.v1")).map(([, v]) => v).join(""))) as string;
   const token = raw.match(/"token":"(0x[0-9a-fA-F]{40})"/)?.[1] as `0x${string}`;
   const mineSeat = raw.match(/"account":"(0x[0-9a-fA-F]{40})"/)?.[1] as `0x${string}`;
   check(!!token && !!mineSeat, `the mine is recorded: token ${token?.slice(0, 10)}…, mine ${mineSeat?.slice(0, 10)}…`);
   const creator = (await pub.readContract({ address: token, abi: ABI.token, functionName: "creator" })) as string;
   check(creator.toLowerCase() === mineSeat.toLowerCase(), "on chain, the token's creator is the mine, not Alice");
+  const onchain = (await pub.readContract({ address: token, abi: ABI.token, functionName: "getTokenInfo" })) as [string, string, string];
+  const meta = (await pub.readContract({ address: token, abi: ABI.token, functionName: "metaURI" })) as string;
+  check(onchain[1] === IMAGE_URI && meta === METADATA_URI, "on chain, the token carries the stored image and metadata document");
   await page.getByText("UITST").first().waitFor();
 
   log("Someone trades UITST");

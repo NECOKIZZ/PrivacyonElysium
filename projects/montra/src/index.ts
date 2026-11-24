@@ -514,3 +514,98 @@ export async function recoverMontra(pub: PublicClient, seats: FoundSeat[]): Prom
   return { mines, holdings };
 }
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
+// ── a token's card: profile and market, read from the chain ─────────────────────────────────────────────────────
+
+export interface TokenProfile {
+  name: string;
+  symbol: string;
+  /** The image URI as launched (render only http(s):// and ipfs://; see imageSrc). */
+  logo: string;
+  description: string;
+  socials: { telegram: string; twitter: string; discord: string; website: string };
+  metadataURI: string;
+}
+
+export interface TokenMarket {
+  /** HYPE per whole token, from the pool's current price. */
+  priceHype: number;
+  /** Price × supply, in HYPE. */
+  marketCapHype: number;
+  /** HYPE held by the token's locked launch position at the current price (what a seller can actually get out). */
+  liquidityHype: number;
+  supply: bigint;
+  /** "new", "graduated"…: Montra's stage, and progress to the next one in basis points. */
+  stage: number;
+  graduationBps: number;
+}
+
+const Q96 = 2 ** 96;
+const sqrtAt = (tick: number) => Math.sqrt(1.0001 ** tick) * Q96;
+
+/** HYPE in a position of liquidity `L` between two ticks, at the pool's sqrt price (currency0 = HYPE), in HYPE. */
+export function positionHype(L: bigint, sqrtPriceX96: bigint, tickLower: number, tickUpper: number): number {
+  const l = Number(L);
+  const sp = Number(sqrtPriceX96);
+  const sa = sqrtAt(tickLower);
+  const sb = sqrtAt(tickUpper);
+  const s = Math.min(Math.max(sp, sa), sb);
+  if (s >= sb) return 0;
+  return (l * (sb - s) * Q96) / (s * sb) / 1e18;
+}
+
+/** A Montra token's on-chain profile and market: one multicall to its token and Montra's lens. */
+export async function tokenCard(pub: PublicClient, token: Address): Promise<{ profile: TokenProfile; market: TokenMarket }> {
+  const { lens } = await montraAddresses(pub);
+  const [view, info, name, symbol, supply, meta] = (await pub.multicall({
+    contracts: [
+      { address: lens, abi: ABI.lens, functionName: "tokenView", args: [token] },
+      { address: token, abi: ABI.token, functionName: "getTokenInfo" },
+      { address: token, abi: ABI.token, functionName: "name" },
+      { address: token, abi: ABI.token, functionName: "symbol" },
+      { address: token, abi: ABI.token, functionName: "totalSupply" },
+      { address: token, abi: ABI.token, functionName: "metaURI" },
+    ],
+    allowFailure: false,
+  })) as unknown as [Record<string, any>, [Address, string, string, Record<string, string>], string, string, bigint, string];
+  const sqrt = view.sqrtPriceX96 as bigint;
+  if (view.key.currency0 !== HYPE) throw new Error("Only HYPE-paired Montra tokens are supported.");
+  // currency0 is HYPE: the pool's price is tokens per HYPE, so HYPE per token is its inverse
+  const priceHype = sqrt > 0n ? (Q96 / Number(sqrt)) ** 2 : 0;
+  const cfg = view.config;
+  const liquidityHype = positionHype(cfg.seedLiquidity as bigint, sqrt, Number(cfg.seedTickLower), Number(cfg.seedTickUpper));
+  const s = info[3] ?? {};
+  return {
+    profile: {
+      name,
+      symbol,
+      logo: info[1] ?? "",
+      description: info[2] ?? "",
+      socials: { telegram: s.telegram ?? "", twitter: s.twitter ?? "", discord: s.discord ?? "", website: s.website ?? "" },
+      metadataURI: meta ?? "",
+    },
+    market: {
+      priceHype,
+      marketCapHype: priceHype * (Number(supply) / 1e18),
+      liquidityHype,
+      supply,
+      stage: Number(cfg.stage),
+      graduationBps: Number(view.graduationProgressBps),
+    },
+  };
+}
+
+/**
+ * A browser-loadable URL for a token's image, or "" when it can't be shown. Only http(s):// and ipfs:// render
+ * (Montra's rule: profiles are whatever the launcher sent). ipfs:// goes through a gateway that serves it.
+ */
+export function imageSrc(uri: string): string {
+  const u = (uri ?? "").trim();
+  if (/^ipfs:\/\//i.test(u)) return `https://ipfs.filebase.io/ipfs/${u.replace(/^ipfs:\/\/(ipfs\/)?/i, "")}`;
+  if (/^https?:\/\/[^\s"'<>]+$/i.test(u)) return u;
+  return "";
+}
+
+/** The image types Montra stores, and its size limit. */
+export const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp", "image/gif"] as const;
+export const IMAGE_MAX_BYTES = 2 * 1024 * 1024;

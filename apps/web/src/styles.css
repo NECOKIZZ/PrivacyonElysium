@@ -222,3 +222,40 @@ code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
 .strat-btn { border: 1px solid var(--line-strong); background: transparent; border-radius: 999px; height: 32px; padding: 0 12px; font: 550 13.5px var(--font-body); color: var(--text); cursor: pointer; }
 .strat-btn:hover { background: var(--card-2); }
 .strat-wrap .strat-menu { right: 0; }
+
+/* Montra: token cards, the launch result, the image picker */
+.tok-logo { flex: none; display: grid; place-items: center; overflow: hidden; border-radius: 50%; background: var(--card-2); border: 1px solid var(--line-strong); color: var(--soft); font: 650 16px var(--font-display); }
+.tok-logo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tok-head { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.tok-head .tok-name { font: 650 17px var(--font-display); letter-spacing: -0.01em; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tok-head .tok-ticker { font: 550 13px var(--font-num); color: var(--mute); }
+.tok-card { border: 1px solid var(--line); background: var(--bg); border-radius: var(--r-md); padding: 14px; display: grid; gap: 12px; }
+.tok-card + .tok-card { margin-top: 10px; }
+.tok-desc { color: var(--soft); font-size: 13px; line-height: 1.45; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.tok-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.tok-stats > div { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px 10px; min-width: 0; }
+.tok-stats .k { color: var(--mute); font-size: 11.5px; }
+.tok-stats .v { font: 600 15px var(--font-num); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tok-stats .s { color: var(--mute); font: 500 11.5px var(--font-num); }
+.tok-links { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 13px; }
+.tok-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.tok-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+@media (max-width: 640px) { .tok-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.launched { border: 1px solid var(--signal-line); background: var(--signal-soft); border-radius: var(--r-lg); padding: 18px; margin: 12px 0; display: grid; gap: 14px; }
+.launched .tok-card { background: var(--bg); }
+.launched h2 { margin: 0; }
+.launched .seen { display: grid; gap: 6px; font-size: 13.5px; }
+.copy { appearance: none; border: 0; background: none; padding: 0; color: var(--signal); cursor: pointer; font: inherit; }
+
+.tabs { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; background: var(--card-2); }
+.tabs button { appearance: none; border: 0; background: transparent; color: var(--soft); border-radius: 999px; padding: 6px 14px; font-weight: 600; cursor: pointer; }
+.tabs button.on { background: var(--bg); color: var(--text); box-shadow: 0 1px 2px color-mix(in srgb, var(--brand-ink) 12%, transparent); }
+
+.picker { display: flex; align-items: center; gap: 12px; margin-top: 6px; border: 1px dashed var(--line-strong); border-radius: var(--r-md); padding: 10px 12px; background: var(--bg); }
+.picker.drag { border-color: var(--signal); background: var(--signal-soft); }
+.picker.bad { border-color: var(--danger); }
+.picker .tok-logo { width: 56px; height: 56px; border-radius: 14px; }
+.picker .what { flex: 1; min-width: 0; font-size: 13px; color: var(--soft); }
+.picker .what b { color: var(--text); }
+.linkbtn { appearance: none; border: 0; background: none; padding: 0; color: var(--signal); cursor: pointer; font: inherit; font-size: 13px; }

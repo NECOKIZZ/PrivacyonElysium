@@ -8,3 +8,4 @@ dist
 dist-ui-test
 test/shots
 dist-ui-montra
+test/scratch/
