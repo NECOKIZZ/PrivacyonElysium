@@ -327,3 +327,5 @@ code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
 .trow-body { padding: 0 2px 12px 50px; display: grid; gap: 8px; }
 .trow-body .tok-actions { justify-content: flex-start; }
 @media (max-width: 640px) { .trow-line { grid-template-columns: 36px minmax(0, 1fr) 96px 28px; } .trow-price { display: none; } .trow-body { padding-left: 2px; } }
+.trow-name > span { overflow: hidden; }
+@media (max-width: 640px) { .trow-name .addr > span, .trow-name .addr > a { display: none; } }
