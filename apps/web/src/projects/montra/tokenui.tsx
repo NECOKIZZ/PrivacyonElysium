@@ -36,10 +36,14 @@ export function num(x: number, sig = 3): string {
   if (a >= 1_000_000) return `${(x / 1e6).toFixed(2)}M`;
   if (a >= 10_000) return `${(x / 1e3).toFixed(1)}K`;
   if (a >= 1) return x.toLocaleString(undefined, { maximumFractionDigits: 2 });
-  const zeros = Math.floor(-Math.log10(a));
-  const digits = Math.round(a * 10 ** (zeros + sig)).toString().replace(/0+$/, "") || "0";
-  if (zeros >= 4) return `0.0${String(zeros).split("").map((d) => "₀₁₂₃₄₅₆₇₈₉"[+d]).join("")}${digits}`;
-  return `0.${"0".repeat(zeros - 1)}${digits}`;
+  // round first (0.9996 is 1.00, not 0.1), then count the zeros after the point
+  const [m, e] = a.toExponential(sig - 1).split("e");
+  const zeros = -Number(e) - 1;
+  if (zeros < 0) return x.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  const digits = m.replace(".", "").replace(/0+$/, "") || "0";
+  const sign = x < 0 ? "-" : "";
+  if (zeros >= 4) return `${sign}0.0${String(zeros).split("").map((d) => "₀₁₂₃₄₅₆₇₈₉"[+d]).join("")}${digits}`;
+  return `${sign}0.${"0".repeat(zeros)}${digits}`;
 }
 const usd = (x: number) => `$${num(x)}`;
 
