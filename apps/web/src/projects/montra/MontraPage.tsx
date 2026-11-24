@@ -89,9 +89,16 @@ export function MontraPage() {
 
   const store = useMemo(() => (p ? montraBook(p.address) : null), [p]);
   useEffect(() => {
-    launchRows(publicClient)
-      .then((r) => (setRows(r), setRowId((x) => x || (r[0] ? r[0].id.toString() : ""))))
-      .catch((e) => console.warn("Montra rows:", e));
+    // Montra's menu, read live; a slow or busy RPC gets retried until it answers
+    let live = true;
+    const load = (tries: number) =>
+      launchRows(publicClient)
+        .then((r) => live && (setRows(r), setRowId((x) => x || (r[0] ? r[0].id.toString() : ""))))
+        .catch((e) => (console.warn("Montra rows:", e), live && tries < 20 && setTimeout(() => load(tries + 1), 5000)));
+    load(0);
+    return () => {
+      live = false;
+    };
   }, []);
 
   const refresh = useCallback(async () => {
@@ -390,7 +397,7 @@ export function MontraPage() {
               <div className="kv"><span>Dev buy</span><span>{devNet > 0n ? `${fmt(devNet)} HYPE` : "—"}</span></div>
               <div className="kv total"><span>From your private balance</span><span>{launchCost > 0n ? `${fmt(launchCost, 6)} HYPE` : "—"}</span></div>
             </div>
-            <button className="btn primary big" disabled={!canLaunch} onClick={ready ? launch : connect}>
+            <button className="btn primary big" disabled={busy || (ready && !canLaunch)} onClick={ready ? launch : connect}>
               {!ready ? "Connect" : busy ? "Working…" : `Launch ${symbol || "token"} privately`}
             </button>
             <div className="seen-below">
@@ -463,7 +470,7 @@ export function MontraPage() {
                 <input type="checkbox" checked={holdPieces} onChange={(e) => setHoldPieces(e.target.checked)} />
               </label>
             </div>
-            <button className="btn primary big" disabled={!canHold} onClick={ready ? buy : connect}>
+            <button className="btn primary big" disabled={busy || (ready && !canHold)} onClick={ready ? buy : connect}>
               {!ready ? "Connect" : busy ? "Working…" : `Buy privately${holdCost > 0n ? ` · ${fmt(holdCost, 6)} HYPE` : ""}`}
             </button>
           </div>

@@ -96,9 +96,13 @@ export interface LaunchRow {
 export async function launchRows(pub: PublicClient): Promise<LaunchRow[]> {
   const { factory } = await montraAddresses(pub);
   const n = (await pub.readContract({ address: factory, abi: ABI.factory, functionName: "configCount" })) as bigint;
-  const rows = await Promise.all(
-    Array.from({ length: Number(n) }, (_, i) => pub.readContract({ address: factory, abi: ABI.factory, functionName: "getConfig", args: [BigInt(i)] }) as Promise<Record<string, unknown>>),
-  );
+  // in small multicalls: the whole menu in one is too big an answer for the public RPC
+  const rows: Record<string, unknown>[] = [];
+  for (let i = 0; i < Number(n); i += 6) {
+    const ids = Array.from({ length: Math.min(6, Number(n) - i) }, (_, k) => BigInt(i + k));
+    const got = await pub.multicall({ contracts: ids.map((id) => ({ address: factory, abi: ABI.factory, functionName: "getConfig", args: [id] }) as const), allowFailure: false });
+    rows.push(...(got as unknown as Record<string, unknown>[]));
+  }
   return rows
     .map((r, i) => ({ id: BigInt(i), quote: r.quote as Address, totalFeePips: Number(r.totalFeePips), earlyBuyFeeWindow: Number(r.earlyBuyFeeWindow), moduleSetId: r.moduleSetId as bigint, enabled: r.enabled as boolean }))
     .filter((r) => r.enabled && r.quote.toLowerCase() === HYPE)

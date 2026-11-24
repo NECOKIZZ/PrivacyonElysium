@@ -103,7 +103,7 @@ const browser = await chromium.launch({ proxy });
 const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
 await page.addInitScript(wallet);
 page.on("pageerror", (e) => console.log("  pageerror:", e.message));
-page.on("console", (m) => { if (/sweep|fallback/i.test(m.text())) console.log("  console:", m.text()); });
+page.on("console", (m) => { if (/sweep|fallback|montra|error/i.test(m.text())) console.log("  console:", m.text().slice(0, 400)); });
 const statusText = () => page.locator(".status").innerText();
 async function waitStatus(re: RegExp, ms: number) {
   const end = Date.now() + ms;
@@ -119,6 +119,11 @@ const balance = async () => {
   const t = await page.getByTestId("private-balance").innerText();
   return /HYPE/.test(t) ? Number(t.replace(/[^0-9.]/g, "")) : 0;
 };
+
+// warm the fork: its first read of each Montra contract fetches from mainnet, slower than the site's 10 s timeout
+log("Warming the fork with Montra's menu");
+const { launchRows } = await import("../projects/montra/src/index.js");
+check((await launchRows(pub)).length > 0, "Montra's menu reads on the fork");
 
 try {
   await page.goto(`http://127.0.0.1:${SITE}/montra`);
