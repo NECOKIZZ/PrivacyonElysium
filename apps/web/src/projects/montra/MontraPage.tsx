@@ -638,7 +638,7 @@ export function MontraPage() {
 
       {ready && (
         <div className="panel">
-          <div className="row">
+          <div className="row tabbar">
             <span className="tabs" role="tablist">
               <button role="tab" aria-selected={tab === "launches"} className={tab === "launches" ? "on" : ""} onClick={() => setTab("launches")}>
                 Your launches{book.mines.length ? ` · ${book.mines.length}` : ""}

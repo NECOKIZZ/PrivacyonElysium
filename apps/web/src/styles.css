@@ -260,3 +260,6 @@ code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
 .picker .what b { color: var(--text); }
 .linkbtn { appearance: none; border: 0; background: none; padding: 0; color: var(--signal); cursor: pointer; font: inherit; font-size: 13px; }
 .more-row { display: grid; gap: 6px; border-top: 1px solid var(--line); padding-top: 10px; }
+.tabbar { flex-wrap: wrap; gap: 10px; }
+.tabs button { white-space: nowrap; }
+@media (max-width: 640px) { .tabs button { padding: 6px 11px; font-size: 13.5px; } }
