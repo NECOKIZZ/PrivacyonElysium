@@ -4,7 +4,7 @@
  */
 import { GloamPrivate, fromJson, gloamProvers as sdkProvers, gloamRelaySubmitter, toJson, type GloamCore, type GloamCoreConfig } from "@cloakely/sdk";
 import type { WalletClient } from "viem";
-import { HYPE, PRIVACY, type Seat } from "@privacy-for-elysium/eloscape";
+import { HYPE, PRIVACY, fallbackIndex, type Seat } from "@privacy-for-elysium/eloscape";
 import { CHAIN, RELAY_URL, publicClient } from "./wallet";
 
 let provers: GloamCoreConfig["provers"] | null = null;
@@ -110,6 +110,14 @@ export function fallbackFor(priv: GloamPrivate, wallet: string): () => Promise<`
   };
 }
 
+/**
+ * A seat's fallback derived from its note (recover.ts): a new device finds it again from the chain, with nothing
+ * saved. Every seat opened from now on uses this; the counter above stays for receive routes and older seats.
+ */
+export function fallbackOf(priv: GloamPrivate): (nullifier: `0x${string}`) => Promise<`0x${string}`> {
+  return (nullifier) => priv.receiveAddress(fallbackIndex(nullifier));
+}
+
 /** A fresh receive address (from the same 1000+ range) and its sweep: the way back for a seat the escrow has closed. */
 export function receiveRoute(priv: GloamPrivate, wallet: string) {
   const next = fallbackFor(priv, wallet);
@@ -175,6 +183,22 @@ async function sweep(priv: GloamPrivate, wallet: string): Promise<number> {
   }
   if (used + 1 > next) st.save(String(used + 1));
   console.info(`fallback sweep: checked ${idx.length} receive addresses, collected ${made}, next index ${Math.max(next, used + 1)}`);
+  return made;
+}
+
+/**
+ * Sweep the derived fallbacks of these seats (fallbackOf): what a timed-out seat was pushed to, back into the private
+ * balance. One multicall for the balances; only funded ones are collected.
+ */
+export async function sweepSeatFallbacks(priv: GloamPrivate, seats: Pick<Seat, "key">[]): Promise<number> {
+  const idx = [...new Set(seats.map((x) => fallbackIndex(x.key.nullifier)))];
+  if (!idx.length) return 0;
+  const boxes = await retry(() => Promise.all(idx.map((n) => priv.receiveAddress(n))));
+  const bal = await retry(() =>
+    publicClient.multicall({ contracts: boxes.map((a) => ({ address: MULTICALL3, abi: MC3, functionName: "getEthBalance", args: [a] }) as const), allowFailure: false }),
+  );
+  let made = 0;
+  for (let i = 0; i < idx.length; i++) if (bal[i] > 0n) made += (await priv.collectReceived(idx[i])).length;
   return made;
 }
 

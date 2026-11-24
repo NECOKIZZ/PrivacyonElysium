@@ -116,7 +116,7 @@ const browser = await chromium.launch({ proxy });
 const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
 await page.addInitScript(wallet);
 page.on("pageerror", (e) => console.log("  pageerror:", e.message));
-page.on("console", (m) => { if (/sweep|fallback/i.test(m.text())) console.log("  console:", m.text()); });
+page.on("console", (m) => { if (/sweep|fallback|recovery/i.test(m.text())) console.log("  console:", m.text()); });
 const statusText = () => page.locator(".status").innerText();
 async function waitStatus(re: RegExp, ms: number) {
   const end = Date.now() + ms;
@@ -234,7 +234,7 @@ try {
   // seat's timeout anyone can push its funds there; simulate that push, then wipe the browser's storage (a new device)
   const raw = (await page.evaluate(() => Object.entries(localStorage).filter(([k]) => k.startsWith("pfe.eloscape.seats.v1")).map(([, v]) => v).join(""))) as string;
   const fbs = [...raw.matchAll(/"fallbackTo":"(0x[0-9a-fA-F]{40})"/g)].map((m) => m[1]);
-  check(fbs.length > 0, `the seats' fallbacks are receive addresses of the private account (${fbs.length} seats)`);
+  check(fbs.length > 0, `the seats' fallbacks are receive addresses of the private account, derived from each note (${fbs.length} seats)`);
   const fb = fbs[fbs.length - 1];
   await rpc("eth_sendTransaction", [{ from: ALICE, to: fb, value: "0x429d069189e0000" }]); // 0.3 HYPE, as a timeout push would
   await sleep(2500);
@@ -246,8 +246,6 @@ try {
   await page.locator(".wallet-btn").waitFor({ timeout: 600_000 });
   for (let i = 0; i < 900 && (await balance()) < beforeWipe + 0.29; i++) await sleep(1000);
   check((await balance()) >= beforeWipe + 0.29, `swept on a fresh device: private balance ${beforeWipe} → ${await balance()}`);
-  const counter = Number(await page.evaluate(() => Object.entries(localStorage).find(([k]) => k.startsWith("pfe.fallback.v1"))?.[1] ?? "0"));
-  check(counter > 1000 + fbs.length - 1, `new seats start past the fallbacks already used (next index ${counter})`);
 
   const froms = await Promise.all(relayed.map((h) => pub.getTransaction({ hash: h }).then((t) => t.from.toLowerCase())));
   check(froms.every((f) => f === relayer.account.address.toLowerCase()), `all ${relayed.length} private transactions went through the relay`);

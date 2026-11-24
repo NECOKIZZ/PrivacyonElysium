@@ -19,7 +19,7 @@
  */
 import { decodeEventLog, encodeFunctionData, parseAbi, stringToHex, toHex, zeroAddress, type Abi, type Address, type Hex, type PublicClient } from "viem";
 import type { GloamCore } from "@cloakely/sdk";
-import { HYPE, PRIVACY, grossFor, openSeat, seatCall, returnSeat, type ReceiveRoute, type Seat, type Status } from "@privacy-for-elysium/eloscape";
+import { HYPE, PRIVACY, exitAfterFor, grossFor, openSeat, seatCall, returnSeat, type FoundSeat, type ReceiveRoute, type Seat, type SeatDays, type Status } from "@privacy-for-elysium/eloscape";
 import abis from "./abis.json";
 
 const C = abis.contracts as unknown as Record<string, Abi>;
@@ -39,14 +39,16 @@ export const MONTRA_REGISTRY = "0xF1E2FA75422F889e565F3142bdbf60B28dce2aa7" as A
 export const HOLDERS = "0x0000000000000000000000000000000000000001" as Address;
 /** Our Montra Builders code, put on every launch as an ERC-8021 suffix. */
 export const BUILDER_CODE = "cloak";
-/** How long a mine or a holding seat lives before anyone may push what it holds to its fallback (a receive address). */
-export const MINE_DAYS = 365;
-export const HOLDING_DAYS = 180;
+/**
+ * How long a mine or a holding seat lives by default before anyone may push what it holds to its fallback (a receive
+ * address of the private account). The creator or holder picks from SEAT_DAYS, up to two years.
+ */
+export const MINE_DAYS: SeatDays = 365;
+export const HOLDING_DAYS: SeatDays = 180;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** A trade's deadline from the chain's own clock (a device clock can be off), ten minutes ahead. */
 const deadline = async (pub: PublicClient) => (await pub.getBlock()).timestamp + 600n;
-const DAY = 86_400n;
 
 /**
  * ERC-8021 attribution for Montra Builders: the code's ASCII, its length in one byte, schema 0, then the 16-byte
@@ -149,8 +151,8 @@ export async function quote(pub: PublicClient, info: TokenInfo, buy: boolean, am
 // ── seats ───────────────────────────────────────────────────────────────────────────────────────────────────────
 
 export interface SeatPlan {
-  /** A fresh receive address of the private account: the seat's fallback, never the wallet. */
-  fallbackTo: () => Promise<Address>;
+  /** The seat's fallback: a receive address of the private account derived from the note (never the wallet). */
+  fallbackTo: (nullifier: Hex) => Promise<Address>;
   /** Called once the seat exists: save it at once. */
   onSeat?: (seat: Seat) => void;
 }
@@ -171,8 +173,7 @@ export async function openFundedSeat(core: GloamCore, net: bigint, plan: SeatPla
   const pub = core.config.publicClient as PublicClient;
   const parts = pieces?.length ? pieces : [net];
   const exclude = new Set<bigint>();
-  const exitAfter = BigInt(Math.floor(Date.now() / 1000)) + BigInt(days) * DAY;
-  const seat = await openSeat(core, { amount: grossFor(parts[0]), fallbackTo: await plan.fallbackTo(), exitAfter, game: label, exclude }, onStatus);
+  const seat = await openSeat(core, { amount: grossFor(parts[0]), fallbackTo: plan.fallbackTo, exitAfter: exitAfterFor(days), game: label, exclude }, onStatus);
   plan.onSeat?.(seat);
   for (let i = 1; i < parts.length; i++) {
     onStatus(`Adding piece ${i + 1} of ${parts.length}`);
@@ -207,6 +208,8 @@ export interface LaunchInput {
   split: { creator: number; holders: number; builder?: { to: Address; bps: number } };
   /** Fund the mine in these standard pieces (summing to devBuy + launch fee) to hide the amount. */
   pieces?: bigint[];
+  /** How long the mine lives (default a year, at most two). */
+  days?: SeatDays;
 }
 
 export interface Mine {
@@ -277,7 +280,7 @@ export async function launchFromMine(core: GloamCore, p: LaunchInput, plan: Seat
   const value = p.devBuy + fee;
   if (value === 0n) throw new Error("Fund the mine with at least a small dev buy: the seat needs a note to open from.");
   if (p.pieces?.length && p.pieces.reduce((a, b) => a + b, 0n) !== value) throw new Error("The pieces must add up to the dev buy plus the launch fee.");
-  const seat = await openFundedSeat(core, value, plan, MINE_DAYS, factory, p.pieces, onStatus);
+  const seat = await openFundedSeat(core, value, plan, p.days ?? MINE_DAYS, factory, p.pieces, onStatus);
   const salt = toHex(crypto.getRandomValues(new Uint8Array(32)));
   onStatus("Launching from your mine");
   const launchTx = await seatCall(core, seat, { target: factory, value, data: launchCalldata(seat.account, p, salt) });
@@ -389,11 +392,11 @@ export interface Holding {
 }
 
 /** Buy `net` HYPE of a Montra token from a fresh seat (in pieces if asked); the seat holds what it bought. */
-export async function buyPrivately(core: GloamCore, token: Address, net: bigint, plan: SeatPlan, opts: { pieces?: bigint[]; maxSlippageBps?: number } = {}, onStatus: Status = () => {}): Promise<Holding> {
+export async function buyPrivately(core: GloamCore, token: Address, net: bigint, plan: SeatPlan, opts: { pieces?: bigint[]; maxSlippageBps?: number; days?: SeatDays } = {}, onStatus: Status = () => {}): Promise<Holding> {
   const pub = core.config.publicClient as PublicClient;
   const info = await tokenInfo(pub, token);
   const { router } = await montraAddresses(pub);
-  const s = await openFundedSeat(core, net, plan, HOLDING_DAYS, router, opts.pieces, onStatus);
+  const s = await openFundedSeat(core, net, plan, opts.days ?? HOLDING_DAYS, router, opts.pieces, onStatus);
   const out = await quote(pub, info, true, net);
   const minOut = (out * BigInt(10_000 - (opts.maxSlippageBps ?? 1_000))) / 10_000n;
   onStatus(`Buying ${info.symbol} from the seat`);
@@ -456,3 +459,58 @@ export async function sellPrivately(core: GloamCore, h: Holding, viaReceive: () 
   const txs = await returnSeat(core, h.seat, onStatus, viaReceive);
   return { hypeOut, txs };
 }
+
+// ── recovery ────────────────────────────────────────────────────────────────────────────────────────────────────
+
+/** The apps Montra seats are opened for (their keys' `auction`): mines name the factory, holdings the router. */
+export async function montraSeatLabels(pub: PublicClient): Promise<Address[]> {
+  const { factory, router } = await montraAddresses(pub);
+  return [factory, router];
+}
+
+/**
+ * Turn seats found on chain (recoverSeats) back into mines and holdings: a mine is the creator of a TokenLaunched
+ * near its funding block; a holding received a Montra token from the router's swap near its funding block.
+ */
+export async function recoverMontra(pub: PublicClient, seats: FoundSeat[]): Promise<{ mines: Mine[]; holdings: Holding[] }> {
+  const { factory, router } = await montraAddresses(pub);
+  const mines: Mine[] = [];
+  const holdings: Holding[] = [];
+  const window = 20_000n;
+  for (const s of seats) {
+    const a = s.account.toLowerCase();
+    if (s.label.toLowerCase() === factory.toLowerCase()) {
+      const logs = await pub.getContractEvents({ address: factory, abi: ABI.factory, eventName: "TokenLaunched", args: { creator: s.account } as never, fromBlock: s.openedBlock, toBlock: s.openedBlock + window });
+      for (const l of logs) {
+        const e = l.args as unknown as Record<string, unknown>;
+        const token = e.token as Address;
+        const info = await tokenInfo(pub, token);
+        const recipient = (await pub.readContract({ address: info.hook, abi: ABI.hook, functionName: "recipientOf", args: [info.poolId] })) as Address;
+        const rc = await pub.getTransactionReceipt({ hash: l.transactionHash! });
+        let splitter: Address | undefined;
+        for (const x of rc.logs) {
+          try {
+            const d = decodeEventLog({ abi: ABI.factory, data: x.data, topics: x.topics });
+            if (d.eventName === "FeeSplitterDeployed") splitter = (d.args as unknown as Record<string, unknown>).splitter as Address;
+          } catch {}
+        }
+        mines.push({ seat: s, token, poolId: info.poolId, hook: info.hook, recipient, splitter, symbol: info.symbol, name: info.name, launchTx: l.transactionHash! });
+      }
+    } else if (s.label.toLowerCase() === router.toLowerCase()) {
+      // the first Montra token the seat received after it was funded
+      const logs = await pub.request({
+        method: "eth_getLogs",
+        params: [{ topics: [TRANSFER_TOPIC, null, `0x${"0".repeat(24)}${a.slice(2)}`], fromBlock: `0x${s.openedBlock.toString(16)}`, toBlock: `0x${(s.openedBlock + window).toString(16)}` }],
+      } as never) as { address: Address }[];
+      for (const l of logs) {
+        try {
+          const info = await tokenInfo(pub, l.address);
+          holdings.push({ seat: s, token: info.token, symbol: info.symbol, name: info.name, spent: s.arrived });
+          break;
+        } catch {}
+      }
+    }
+  }
+  return { mines, holdings };
+}
+const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";

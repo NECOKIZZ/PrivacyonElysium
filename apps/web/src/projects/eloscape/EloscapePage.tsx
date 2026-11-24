@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { formatEther, isAddress, parseEther, type Address, type WalletClient } from "viem";
 import {
-  ELOSCAPE, GRID, MIN_DEPLOY, SEAL_LEAD_SECONDS, eloSwapFloor, GLOAM_EXIT_FEE_BPS, RANDOM_WIDTHS, STRATEGIES, collect, grossFor, randomBlocks, strategyBlocks, strategyOf, liveRound, owed, privateAuto, privatePlay, sealedPlay, sendSeatElo, splitPlay, splitSizes,
+  ELOSCAPE, GRID, MIN_DEPLOY, SEAL_LEAD_SECONDS, eloSwapFloor, GLOAM_EXIT_FEE_BPS, RANDOM_WIDTHS, STRATEGIES, collect, grossFor, recoverSeats, randomBlocks, strategyBlocks, strategyOf, liveRound, owed, privateAuto, privatePlay, sealedPlay, sendSeatElo, splitPlay, splitSizes,
   type LiveRound, type Seat,
 } from "@privacy-for-elysium/eloscape";
 import { Footer, REPO, SDK_DOCS, TopBar, go } from "../../pages/chrome";
 import { connectWallet, publicClient, visible } from "../../wallet";
 import { GAME_ABI } from "@privacy-for-elysium/eloscape";
-import { fallbackFor, privateHype, receiveRoute, seatBook, sweepFallbacks, unlockPrivate, type Private } from "../../privacy";
+import { fallbackOf, privateHype, receiveRoute, seatBook, sweepFallbacks, sweepSeatFallbacks, unlockPrivate, type Private } from "../../privacy";
 
 const EXPLORER = "https://elysium.kinetiq.xyz/explorer/address/";
 const fmt = (v: bigint, d = 4) => {
@@ -270,6 +270,21 @@ export function EloscapePage() {
       setP(u);
       setStatus("");
       sweepFallbacks(u.priv, u.address).catch((e) => console.warn("fallback sweep:", e)); // a timed-out seat's funds, back into the private balance
+      // seats this device doesn't know (a new device, cleared storage): found again from the chain, kept if they hold anything
+      recoverSeats(u.core, { labels: [ELOSCAPE.game], receiveAddress: (n) => u.priv.receiveAddress(n) })
+        .then(async (found) => {
+          const b = seatBook(u.address);
+          const known = new Set(b.load().map((x) => x.account.toLowerCase()));
+          const add: BookSeat[] = [];
+          for (const f of found.filter((x) => !known.has(x.account.toLowerCase()))) {
+            const o = await owed(publicClient, f.account);
+            if (o.hype + o.held > 0n || o.elo > 0n || o.autoActive) add.push({ ...f, label: "Found on chain" });
+          }
+          if (add.length) (b.save([...b.load(), ...add]), setStatus(`Found ${add.length} seat${add.length === 1 ? "" : "s"} of yours on chain.`));
+          // what timed-out seats were pushed to their fallbacks, back into the private balance
+          await sweepSeatFallbacks(u.priv, [...found, ...b.load()]).catch((e) => console.warn("seat fallback sweep:", e));
+        })
+        .catch((e) => console.warn("seat recovery:", e));
     });
 
   const disconnect = () => {
@@ -370,7 +385,7 @@ export function EloscapePage() {
   const play = () => {
     if (!p || !wallet) return;
     if (!blocks.length && !randomAuto) return setError("Pick at least one block.");
-    const fallbackTo = fallbackFor(p.priv, p.address); // a fresh receive address per seat: never the wallet
+    const fallbackTo = fallbackOf(p.priv); // a receive address derived from each seat's note: never the wallet, found again from the chain
     const on = (s: string) => setStatus(s);
     if (mode === "auto") {
       return run("Starting Private Auto", async () => {
@@ -805,7 +820,7 @@ export function EloscapePage() {
           <li><b>Connect</b> and sign once. It opens your private account; no transaction, no gas.</li>
           <li><b>Shield</b> HYPE into your private balance. This is the one public step, so do it ahead of time.</li>
           <li><b>Pick blocks</b> on the grid or with Eloscape's strategies (All, Cross, Odd, Even, Plus, Random). For Auto you can also let Eloscape pick 1, 3, 5, 9 or 13 random blocks each round. Set the amount per block (and rounds, for Auto), and choose your privacy: <i>Seal</i> hides your blocks until the last seconds, <i>Hide my amount</i> splits your stake into standard pieces.</li>
-          <li><b>Play.</b> A fresh address plays for you; your wallet never appears. Too close to the end of a round? It goes into the next one.</li>
+          <li><b>Play.</b> A fresh address plays for you; your wallet never appears. Too close to the end of a round? It goes into the next one. Each seat lasts 7 days: collect before then. After that, anyone can push what's left to your fallback address, and it comes back to your private balance next time you connect.</li>
           <li><b>Collect</b> after the round: winnings go back into your private balance.</li>
           <li>
             <b>ELO</b> can't enter the vault. Pick once, above your seats: <i>ELO → private HYPE</i> swaps it as you collect (about 4% in pool

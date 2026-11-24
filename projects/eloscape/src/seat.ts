@@ -52,7 +52,7 @@ export async function exitFeeBps(pub: PublicClient): Promise<bigint> {
  */
 export async function openSeat(
   core: GloamCore,
-  p: { amount: bigint; fallbackTo: Address; exitAfter: bigint; game?: Address; exclude?: Set<bigint> },
+  p: { amount: bigint; fallbackTo: Address | ((nullifier: Hex) => Promise<Address>); exitAfter: bigint; game?: Address; exclude?: Set<bigint> },
   onStatus: Status = () => {},
 ): Promise<Seat> {
   const pub = core.config.publicClient as PublicClient;
@@ -61,7 +61,9 @@ export async function openSeat(
   p.exclude?.add(note.commitment); // a later seat in the same batch never picks this note again
   const nullifier = `0x${note.nullifier.toString(16).padStart(64, "0")}` as Hex;
   const ownerKey = privateKeyToAccount(core.exitKeyFor(nullifier)).address;
-  const key: GloamBidKey = { nullifier, amount: p.amount, auction: p.game ?? ELOSCAPE.game, ownerKey, fallbackTo: p.fallbackTo, exitAfter: p.exitAfter };
+  // a fallback derived from the note (fallbackIndex) lets a new device rebuild this seat from the chain (recover.ts)
+  const fallbackTo = typeof p.fallbackTo === "function" ? await p.fallbackTo(nullifier) : p.fallbackTo;
+  const key: GloamBidKey = { nullifier, amount: p.amount, auction: p.game ?? ELOSCAPE.game, ownerKey, fallbackTo, exitAfter: p.exitAfter };
   const account = (await pub.readContract({ address: PRIVACY.bids, abi: BIDS, functionName: "accountFor", args: [key] })) as Address;
   const s = await core.spendProof(note, account, onStatus);
   onStatus("Moving it to a fresh seat");

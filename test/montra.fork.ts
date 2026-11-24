@@ -9,9 +9,9 @@ import { spawn } from "node:child_process";
 import { createPublicClient, createWalletClient, encodeFunctionData, formatEther, http, parseEther, toHex, type Address, type Hex, type PublicClient } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { GloamPrivate, elysium, gloamProvers, type GloamCore } from "@cloakely/sdk";
-import { ELYSIUM_MAINNET, ELYSIUM_RPC, HYPE, PRIVACY, type ReceiveRoute } from "../projects/eloscape/src/index.js";
+import { ELYSIUM_MAINNET, ELYSIUM_RPC, HYPE, PRIVACY, fallbackIndex, recoverSeats, seatDaysLeft, type ReceiveRoute } from "../projects/eloscape/src/index.js";
 import {
-  ABI, BUILDER_CODE, builderSuffix, buyPrivately, claimHoldingRewards, claimMineFees, holdingView, launchFromMine, launchRows, mineOwed, montraAddresses, quote, sellPrivately, tokenInfo,
+  ABI, BUILDER_CODE, builderSuffix, montraSeatLabels, recoverMontra, buyPrivately, claimHoldingRewards, claimMineFees, holdingView, launchFromMine, launchRows, mineOwed, montraAddresses, quote, sellPrivately, tokenInfo,
   type Holding, type Mine,
 } from "../projects/montra/src/index.js";
 
@@ -78,8 +78,8 @@ try {
   log("Alice shields 10 HYPE (the one public step)");
   await A.shieldHype(alice, parseEther("10"));
   check((await privateHype()) === parseEther("10"), "Alice holds 10 HYPE privately");
-  let nextIdx = 1000;
-  const fallbackTo = async () => A.receiveAddress(nextIdx++);
+  let nextIdx = 1000; // receive routes for payouts
+  const fallbackTo = (n: Hex) => A.receiveAddress(fallbackIndex(n)); // derived from each seat's note, as the site does
   const viaReceive = async (): Promise<ReceiveRoute> => { const n = nextIdx++; return { address: await A.receiveAddress(n), collect: () => A.collectReceived(n) }; };
   const plan = { fallbackTo };
   const step = (s: string) => log("   ", s);
@@ -98,7 +98,8 @@ try {
   // ── 1. A private launch: the mine is the creator and takes all the creator fees ──
   log("1 · Alice launches PRIV from a mine funded in pieces 0.2 + 0.2 + 0.1 (dev buy 0.5 HYPE)");
   const launchFee = (await pub.readContract({ address: addrs.factory, abi: ABI.factory, functionName: "launchFee" })) as bigint;
-  const m1: Mine = await launchFromMine(core, { name: "Private Test", symbol: "PRIV", configId: row.id, devBuy: parseEther("0.5") - launchFee, split: { creator: 10_000, holders: 0 }, pieces: [parseEther("0.2"), parseEther("0.2"), parseEther("0.1")] }, plan, step);
+  const m1: Mine = await launchFromMine(core, { name: "Private Test", symbol: "PRIV", configId: row.id, devBuy: parseEther("0.5") - launchFee, split: { creator: 10_000, holders: 0 }, pieces: [parseEther("0.2"), parseEther("0.2"), parseEther("0.1")], days: 730 }, plan, step);
+  check(seatDaysLeft(m1.seat) >= 728 && seatDaysLeft(m1.seat) <= 730, `the mine lasts two years, as chosen (${seatDaysLeft(m1.seat)} days left)`);
   const info1 = await tokenInfo(pub, m1.token);
   const creator1 = (await pub.readContract({ address: m1.token, abi: ABI.token, functionName: "creator" })) as Address;
   check(creator1.toLowerCase() === m1.seat.account.toLowerCase(), `the mine ${m1.seat.account.slice(0, 10)}… is PRIV's creator on chain`);
@@ -169,6 +170,32 @@ try {
   const before5 = await privateHype();
   await sellPrivately(core, { seat: m1.seat, token: m1.token, symbol: "PRIV", name: "Private Test", spent: 0n }, viaReceive, {}, step);
   check((await privateHype()) > before5, `the dev buy's HYPE is back in Alice's private balance (+${formatEther((await privateHype()) - before5)})`);
+
+  // ── a new device: nothing saved, everything found again from the chain ──
+  log("5 · Alice on a new device: no records, the same wallet");
+  const B = await GloamPrivate.unlock(alice, {
+    publicClient: pub, chainId: ELYSIUM_MAINNET,
+    gloamVault: { pool: PRIVACY.gloamVault, poolBlock: PRIVACY.gloamVaultBlock },
+    payMemo: PRIVACY.memoBoard, whype: PRIVACY.whype, bids: PRIVACY.bids, receive: PRIVACY.receive,
+    provers: gloamProvers(), submit, logChunk: 50_000n,
+    records: { load: () => [] as never, save: () => {} },
+  } as never);
+  const found = await recoverSeats(B.cores[0] as GloamCore, { labels: await montraSeatLabels(pub), receiveAddress: (n) => B.receiveAddress(n), logChunk: 50_000n });
+  const back = await recoverMontra(pub, found);
+  check(back.mines.some((m) => m.token === m1.token) && back.mines.some((m) => m.token === m2.token), `both mines found again from the chain (${back.mines.map((m) => m.symbol).join(", ")})`);
+  check(back.holdings.some((x) => x.seat.account === h.seat.account), "the holding found again from the chain");
+  const r1 = back.mines.find((m) => m.token === m1.token)!;
+  check(r1.seat.key.exitAfter === m1.seat.key.exitAfter && r1.seat.account === m1.seat.account, "the recovered mine has the same key: same address, same end date");
+  const r2 = back.mines.find((m) => m.token === m2.token)!;
+  check(r2.splitter?.toLowerCase() === m2.splitter?.toLowerCase(), "the recovered split mine knows its splitter");
+  log("   Bob trades PRIV again; the new device claims the mine's fees");
+  await bobTrade(info1, parseEther("10"), 50n);
+  const bCore = B.cores[0] as GloamCore;
+  const bHype = async () => (await bCore.sync(), bCore.ownNotes(HYPE).reduce((a, n) => a + n.amount, 0n));
+  const beforeB = await bHype();
+  let nb = 2000;
+  const c5 = await claimMineFees(bCore, r1, async () => { const n = nb++; return { address: await B.receiveAddress(n), collect: () => B.collectReceived(n) }; }, step);
+  check((await bHype()) - beforeB === c5.paid && c5.paid > 0n, `the new device claimed the recovered mine's fees: +${formatEther(c5.paid)} HYPE`);
 
   // ── privacy ───────────────────────────────────────────────────────────────
   const txs = await Promise.all(sent.map((h) => pub.getTransaction({ hash: h })));

@@ -13,6 +13,7 @@ import type { GloamCore } from "@cloakely/sdk";
 import { ELOSCAPE } from "./config.js";
 import { GRID, MIN_DEPLOY, autoFixedCall, autoRandomCall, claimAllCall, deployCall, liveRound, owed, stopAutoCall } from "./game.js";
 import { eloSwapWorth, payEloGas, swapHeldElo } from "./elo.js";
+import { exitAfterFor } from "./recover.js";
 import { openSeat, returnSeat, seatCall, sendSeatCall, signSeatCall, type ReceiveRoute, type Seat, type SignedSeatCall, type Status } from "./seat.js";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -24,7 +25,7 @@ export interface SeatOptions {
    * which every call from the seat carries in the clear: NEVER the player's wallet. Use a fresh receive address of the
    * player's private account (GloamPrivate.receiveAddress), which collects back into the private balance.
    */
-  fallbackTo: Address | (() => Promise<Address>);
+  fallbackTo: Address | ((nullifier: Hex) => Promise<Address>);
   exitAfterDays?: number;
   /** Called as soon as each seat is opened (its note has left the vault), before it plays: save it right away. */
   onSeat?: (seat: Seat) => void;
@@ -32,8 +33,8 @@ export interface SeatOptions {
 
 const seatParams = async (o: SeatOptions, amount: bigint, exclude?: Set<bigint>) => ({
   amount,
-  fallbackTo: typeof o.fallbackTo === "function" ? await o.fallbackTo() : o.fallbackTo,
-  exitAfter: BigInt(Math.floor(Date.now() / 1000)) + BigInt(o.exitAfterDays ?? 7) * DAY,
+  fallbackTo: o.fallbackTo,
+  exitAfter: exitAfterFor(o.exitAfterDays ?? 7),
   game: ELOSCAPE.game,
   exclude,
 });

@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { formatEther, isAddress, keccak256, parseEther, type Address, type WalletClient } from "viem";
 import { fromJson, toJson } from "@cloakely/sdk";
-import { grossFor, returnSeat, splitSizes, type Seat } from "@privacy-for-elysium/eloscape";
+import { SEAT_DAYS, grossFor, recoverSeats, returnSeat, seatDaysLeft, splitSizes, type Seat, type SeatDays } from "@privacy-for-elysium/eloscape";
 import {
-  BUILDER_CODE, buyPrivately, claimHoldingRewards, claimMineFees, holdingView, launchFromMine, launchRows, mineOwed, payoutCost, sellPrivately,
+  BUILDER_CODE, buyPrivately, claimHoldingRewards, claimMineFees, holdingView, launchFromMine, launchRows, mineOwed, montraSeatLabels, payoutCost, recoverMontra, sellPrivately,
   type Holding, type LaunchRow, type Mine,
 } from "@privacy-for-elysium/montra";
 import { Footer, REPO, TopBar, go } from "../../pages/chrome";
 import { connectWallet, publicClient, visible } from "../../wallet";
-import { fallbackFor, privateHype, receiveRoute, sweepFallbacks, unlockPrivate, type Private } from "../../privacy";
+import { fallbackOf, privateHype, receiveRoute, sweepFallbacks, sweepSeatFallbacks, unlockPrivate, type Private } from "../../privacy";
 
 const EXPLORER = "https://elysium.kinetiq.xyz/explorer/address/";
 const MONTRA_TOKEN = "https://montramarkets.xyz/token/";
@@ -20,6 +20,19 @@ const fmt = (v: bigint, d = 4) => {
   return s === 0 ? "0" : s < 10 ** -d ? `<${10 ** -d}` : s.toLocaleString(undefined, { maximumFractionDigits: d });
 };
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+const DAYS_LABEL: Record<number, string> = { 7: "7 days", 30: "30 days", 90: "3 months", 180: "6 months", 365: "1 year", 730: "2 years" };
+const LIFE_CHOICES = SEAT_DAYS.filter((d) => d >= 30);
+const until = (s: Seat) => new Date(Number(s.key.exitAfter) * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+/** How long a seat has left, in words, with a warning in its last month. */
+function SeatLife({ seat, what }: { seat: Seat; what: string }) {
+  const left = seatDaysLeft(seat);
+  if (left < 0) return <span className="err small">Past its end ({until(seat)}): anyone can now move what's left to your fallback address.</span>;
+  return (
+    <span className={left <= 30 ? "err small" : "muted small"}>
+      {left <= 30 ? `Ends in ${left} day${left === 1 ? "" : "s"} (${until(seat)}): ${what} before then.` : `Lasts until ${until(seat)}`}
+    </span>
+  );
+}
 const msg = (e: unknown) => (e instanceof Error ? e.message.split("\n")[0] : String(e));
 
 type Book = { mines: Mine[]; holdings: (Holding & { done?: boolean })[]; unfinished?: Seat[] };
@@ -82,6 +95,8 @@ export function MontraPage() {
   const [devBuy, setDevBuy] = useState("0.1");
   const [holdersPct, setHoldersPct] = useState(0);
   const [inPieces, setInPieces] = useState(true);
+  const [mineDays, setMineDays] = useState<SeatDays>(365);
+  const [holdDays, setHoldDays] = useState<SeatDays>(180);
   // hold form
   const [holdToken, setHoldToken] = useState("");
   const [holdAmt, setHoldAmt] = useState("0.1");
@@ -148,6 +163,25 @@ export function MontraPage() {
       setP(u);
       setStatus("");
       sweepFallbacks(u.priv, u.address).catch((e) => console.warn("fallback sweep:", e));
+      // mines and holdings this device doesn't know (a new device, cleared storage): found again from the chain
+      (async () => {
+        const found = await recoverSeats(u.core, { labels: await montraSeatLabels(publicClient), receiveAddress: (n) => u.priv.receiveAddress(n) });
+        const got = await recoverMontra(publicClient, found);
+        const bk = montraBook(u.address);
+        const b = bk.load();
+        const mines = got.mines.filter((m) => !b.mines.some((x) => x.token === m.token));
+        const holdings: Book["holdings"] = [];
+        for (const h of got.holdings.filter((x) => !b.holdings.some((y) => y.seat.account === x.seat.account))) {
+          const v = await holdingView(publicClient, h);
+          holdings.push({ ...h, done: v.balance === 0n && v.earned === 0n });
+        }
+        if (mines.length || holdings.some((h) => !h.done)) {
+          bk.save({ ...b, mines: [...b.mines, ...mines], holdings: [...b.holdings, ...holdings] });
+          setStatus(`Found ${mines.length} mine${mines.length === 1 ? "" : "s"} and ${holdings.filter((h) => !h.done).length} holding${holdings.length === 1 ? "" : "s"} of yours on chain.`);
+          setBook(bk.load());
+        }
+        await sweepSeatFallbacks(u.priv, found);
+      })().catch((e) => console.warn("seat recovery:", e));
     });
   const disconnect = () => (setP(null), setWallet(null), setBal(null), setBook({ mines: [], holdings: [] }), setSheet(""));
   const save = (f: (b: Book) => Book) => store && store.save(f(store.load()));
@@ -178,9 +212,10 @@ export function MontraPage() {
           devBuy: devNet,
           split: { creator: creatorBps, holders: holdersPct * 100, builder: builderBps ? { to: BUILDER_FEE_TO!, bps: builderBps } : undefined },
           pieces: pieces.pieces.length > 1 ? pieces.pieces : undefined,
+          days: mineDays,
         },
         // the mine is recorded as unfinished the moment it exists, so a launch that fails later never strands its HYPE
-        { fallbackTo: fallbackFor(p!.priv, p!.address), onSeat: (s: Seat) => save((b) => ({ ...b, unfinished: [...(b.unfinished ?? []), s] })) },
+        { fallbackTo: fallbackOf(p!.priv), onSeat: (s: Seat) => save((b) => ({ ...b, unfinished: [...(b.unfinished ?? []), s] })) },
         setStatus,
       );
       save((b) => ({ ...b, mines: [...b.mines, m], unfinished: (b.unfinished ?? []).filter((x) => x.account !== m.seat.account) }));
@@ -212,8 +247,8 @@ export function MontraPage() {
         p!.core,
         holdToken as Address,
         holdNet,
-        { fallbackTo: fallbackFor(p!.priv, p!.address), onSeat: (s: Seat) => save((b) => ({ ...b, unfinished: [...(b.unfinished ?? []), s] })) },
-        { pieces: holdSplit.pieces.length > 1 ? holdSplit.pieces : undefined },
+        { fallbackTo: fallbackOf(p!.priv), onSeat: (s: Seat) => save((b) => ({ ...b, unfinished: [...(b.unfinished ?? []), s] })) },
+        { pieces: holdSplit.pieces.length > 1 ? holdSplit.pieces : undefined, days: holdDays },
         setStatus,
       );
       save((b) => ({ ...b, holdings: [...b.holdings, h], unfinished: (b.unfinished ?? []).filter((x) => x.account !== h.seat.account) }));
@@ -390,6 +425,17 @@ export function MontraPage() {
                 <input type="checkbox" checked={inPieces} onChange={(e) => setInPieces(e.target.checked)} />
               </label>
             </div>
+            <div className="stepper">
+              <span>Your mine lasts</span>
+              <select className="input" style={{ width: "auto", marginTop: 0 }} value={mineDays} onChange={(e) => setMineDays(Number(e.target.value) as SeatDays)} aria-label="Mine lifetime">
+                {LIFE_CHOICES.map((d) => <option key={d} value={d}>{DAYS_LABEL[d]}</option>)}
+              </select>
+            </div>
+            <p className="muted small" style={{ marginTop: 0 }}>
+              Your mine is a fresh address that only you control, for {DAYS_LABEL[mineDays]} (at most 2 years). Claim its fees and sell its dev buy
+              before it ends: after that, anyone can move what's left in it to your fallback address, a receive address of your private account.
+              HYPE there comes back into your private balance by itself; tokens stay yours there but need an extra step to move.
+            </p>
             <div className="summary">
               <div className="kv"><span>Your mine gets</span><span>{(creatorBps / 100).toFixed(0)}% of the creator fees, privately</span></div>
               <div className="kv"><span>Holders get</span><span>{holdersPct}%</span></div>
@@ -470,6 +516,17 @@ export function MontraPage() {
                 <input type="checkbox" checked={holdPieces} onChange={(e) => setHoldPieces(e.target.checked)} />
               </label>
             </div>
+            <div className="stepper">
+              <span>This holding lasts</span>
+              <select className="input" style={{ width: "auto", marginTop: 0 }} value={holdDays} onChange={(e) => setHoldDays(Number(e.target.value) as SeatDays)} aria-label="Holding lifetime">
+                {LIFE_CHOICES.map((d) => <option key={d} value={d}>{DAYS_LABEL[d]}</option>)}
+              </select>
+            </div>
+            <p className="muted small" style={{ marginTop: 0 }}>
+              The tokens sit in a fresh address for {DAYS_LABEL[holdDays]} (at most 2 years). Sell or claim before it ends: after that, anyone can move
+              what's left to your fallback address. HYPE there comes back to your private balance by itself; tokens stay yours but need an extra step to
+              move or sell.
+            </p>
             <button className="btn primary big" disabled={busy || (ready && !canHold)} onClick={ready ? buy : connect}>
               {!ready ? "Connect" : busy ? "Working…" : `Buy privately${holdCost > 0n ? ` · ${fmt(holdCost, 6)} HYPE` : ""}`}
             </button>
@@ -493,8 +550,8 @@ export function MontraPage() {
           </div>
           <p className="muted small">
             Each mine is the fresh address that launched a token: Montra's creator and fee recipient. Claiming pays its own gas from the fees
-            {claimFloor !== null ? `, so it opens once a mine is owed about ${fmt(claimFloor, 5)} HYPE` : ""}. Back up after every launch: a new
-            device needs the backup to reach your mines.
+            {claimFloor !== null ? `, so it opens once a mine is owed about ${fmt(claimFloor, 5)} HYPE` : ""}. A new device finds your mines and
+            holdings again from the chain when you connect; the backup also covers seats made before that worked.
           </p>
           {!book.mines.length && <p className="muted small">No mines yet.</p>}
           {book.mines.map((m) => {
@@ -508,6 +565,7 @@ export function MontraPage() {
                   </span>
                   <a href={EXPLORER + m.seat.account} target="_blank" rel="noreferrer"><code>{short(m.seat.account)}</code></a>
                 </div>
+                <SeatLife seat={m.seat} what="claim its fees and sell its dev buy" />
                 <div className="row muted">
                   <span className="num">{v ? `${fmt(v.owed, 6)} HYPE in fees${v.dev > 0n ? ` · dev buy ${fmt(v.dev)} ${m.symbol}` : ""}` : <span className="shimmer" style={{ width: 160, height: 14 }} />}</span>
                   <span style={{ display: "flex", gap: 6 }}>
@@ -545,6 +603,7 @@ export function MontraPage() {
                   </span>
                   <a href={EXPLORER + h.seat.account} target="_blank" rel="noreferrer"><code>{short(h.seat.account)}</code></a>
                 </div>
+                <SeatLife seat={h.seat} what="sell it or claim its rewards" />
                 <div className="row muted">
                   <span className="num">{v ? `${fmt(v.balance)} ${h.symbol} · ${fmt(v.earned, 6)} HYPE in rewards` : <span className="shimmer" style={{ width: 160, height: 14 }} />}</span>
                   <span style={{ display: "flex", gap: 6 }}>
@@ -566,7 +625,8 @@ export function MontraPage() {
           <li><b>Launch.</b> A fresh address, your mine, is paid from your private balance (in standard pieces) and calls Montra's factory. Montra makes it the creator and fee recipient. Your wallet never appears.</li>
           <li><b>Claim fees</b> from your mines into your private balance. Each claim pays its own gas from the fees.</li>
           <li><b>Hold privately:</b> buy any Montra token from a fresh address, claim its holder rewards privately, and sell back into your private balance.</li>
-          <li><b>Back up</b> your mines. The backup is encrypted so only your private account can open it; a new device needs it to reach them.</li>
+          <li><b>Every mine and holding has an end date</b> you choose, up to 2 years. Before it, only you can move what's in it. After it, anyone can push what's left to your fallback address, a receive address of your private account: HYPE comes back to your private balance by itself, tokens need an extra step.</li>
+          <li><b>New device?</b> Connect with the same wallet: your mines and holdings are found again from the chain. Older ones need the encrypted backup.</li>
         </ol>
       </div>
       <Footer />
