@@ -174,13 +174,13 @@ export function MontraPage() {
     return () => clearInterval(t);
   }, [refresh]);
 
-  const run = async (label: string, f: () => Promise<unknown>) => {
+  const run = async (label: string, f: () => Promise<unknown>, after: "refresh" | "none" = "refresh") => {
     setBusy(true);
     setError("");
     setStatus(label);
     try {
       await f();
-      await refresh();
+      if (after === "refresh") await refresh();
     } catch (e) {
       setError(msg(e));
     } finally {
@@ -215,7 +215,7 @@ export function MontraPage() {
         }
         await sweepSeatFallbacks(u.priv, found);
       })().catch((e) => console.warn("seat recovery:", e));
-    });
+    }, "none");
   const disconnect = () => (setP(null), setWallet(null), setBal(null), setBook({ mines: [], holdings: [] }), setSheet(""));
   const save = (f: (b: Book) => Book) => store && store.save(f(store.load()));
 
@@ -406,6 +406,12 @@ export function MontraPage() {
             <button className="btn wallet-btn" onClick={disconnect} title="Disconnect">
               <span className="dot" />
               {short(p!.address)}
+            </button>
+          ) : busy && wallet?.account ? (
+            <button className="btn wallet-btn opening" disabled title="Connected. Opening your private account…">
+              <span className="dot" />
+              {short(wallet.account.address)}
+              <span className="muted small">opening…</span>
             </button>
           ) : (
             <button className="btn primary" onClick={connect} disabled={busy}>

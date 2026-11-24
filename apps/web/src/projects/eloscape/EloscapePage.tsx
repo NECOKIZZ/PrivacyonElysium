@@ -243,13 +243,13 @@ export function EloscapePage() {
     };
   }, [book, last?.id, last?.settled]);
 
-  const run = async (label: string, f: () => Promise<unknown>) => {
+  const run = async (label: string, f: () => Promise<unknown>, after: "refresh" | "none" = "refresh") => {
     setBusy(true);
     setError("");
     setStatus(label);
     try {
       await f();
-      await refresh();
+      if (after === "refresh") await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message.split("\n")[0] : String(e));
     } finally {
@@ -285,7 +285,7 @@ export function EloscapePage() {
           await sweepSeatFallbacks(u.priv, [...found, ...b.load()]).catch((e) => console.warn("seat fallback sweep:", e));
         })
         .catch((e) => console.warn("seat recovery:", e));
-    });
+    }, "none");
 
   const disconnect = () => {
     setP(null);
@@ -453,6 +453,12 @@ export function EloscapePage() {
         right={
           ready ? (
             <WalletChip address={p!.address} onDisconnect={disconnect} />
+          ) : busy && wallet?.account ? (
+            <button className="btn wallet-btn opening" disabled title="Connected. Opening your private account…">
+              <span className="dot" />
+              {short(wallet.account.address)}
+              <span className="muted small">opening…</span>
+            </button>
           ) : (
             <button className="btn primary" onClick={connect} disabled={busy}>
               Connect

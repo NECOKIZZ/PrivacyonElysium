@@ -71,7 +71,8 @@ export async function unlockPrivate(wallet: WalletClient): Promise<Private> {
  */
 async function seedFromKeeper(priv: GloamPrivate): Promise<void> {
   try {
-    const r = await fetch(`${RELAY_URL.replace(/\/$/, "")}/leaves?pool=${PRIVACY.gloamVault}`);
+    // a shortcut only: if the keeper is slow (asleep on its host), skip it and sync from the chain instead
+    const r = await fetch(`${RELAY_URL.replace(/\/$/, "")}/leaves?pool=${PRIVACY.gloamVault}`, { signal: AbortSignal.timeout(4000) });
     if (!r.ok) return;
     const j = (await r.json()) as { block: string; leaves: [number, string, string][] };
     await priv.seedLeaves(PRIVACY.gloamVault, { block: BigInt(j.block), leaves: j.leaves.map(([index, c]) => ({ index, commitment: BigInt(c) })) });

@@ -144,7 +144,9 @@ try {
 
   log("Connect & go private");
   await page.getByRole("button", { name: "Connect", exact: true }).first().click();
-  await page.locator(".wallet-btn").waitFor({ timeout: 600_000 });
+  await page.locator(".wallet-btn.opening").or(page.locator(".wallet-btn:not(.opening)")).first().waitFor({ timeout: 600_000 });
+  check(true, "the wallet shows as connected at once, while the private account opens");
+  await page.locator(".wallet-btn:not(.opening)").waitFor({ timeout: 600_000 });
   check(true, "private account unlocked with one signature");
 
   log("Shield 2 HYPE");
@@ -243,7 +245,9 @@ try {
   await page.evaluate(() => localStorage.clear());
   await page.goto(`http://127.0.0.1:${SITE}/eloscape`);
   await page.getByRole("button", { name: "Connect", exact: true }).first().click();
-  await page.locator(".wallet-btn").waitFor({ timeout: 600_000 });
+  await page.locator(".wallet-btn.opening").or(page.locator(".wallet-btn:not(.opening)")).first().waitFor({ timeout: 600_000 });
+  check(true, "the wallet shows as connected at once, while the private account opens");
+  await page.locator(".wallet-btn:not(.opening)").waitFor({ timeout: 600_000 });
   for (let i = 0; i < 900 && (await balance()) < beforeWipe + 0.29; i++) await sleep(1000);
   check((await balance()) >= beforeWipe + 0.29, `swept on a fresh device: private balance ${beforeWipe} → ${await balance()}`);
 

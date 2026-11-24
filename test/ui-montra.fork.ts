@@ -164,7 +164,9 @@ try {
 
   log("Connect & go private");
   await page.getByRole("button", { name: "Connect", exact: true }).first().click();
-  await page.locator(".wallet-btn").waitFor({ timeout: 600_000 });
+  await page.locator(".wallet-btn.opening").or(page.locator(".wallet-btn:not(.opening)")).first().waitFor({ timeout: 600_000 });
+  check(true, "the wallet shows as connected at once, while the private account opens");
+  await page.locator(".wallet-btn:not(.opening)").waitFor({ timeout: 600_000 });
   check(true, "private account unlocked with one signature");
   await page.getByRole("button", { name: "Shield", exact: true }).first().click();
   await page.getByPlaceholder("HYPE to shield").fill("3");

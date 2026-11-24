@@ -333,3 +333,7 @@ code { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; }
 .tok-logo:not(.empty) { background: none; border: 0; }
 .tok-logo.sq:not(.empty) { border-radius: 10px; }
 .tok-logo.sq.empty { border-radius: 50%; }
+.wallet-btn.opening { opacity: 1; cursor: default; gap: 8px; }
+.wallet-btn.opening .dot { animation: pulse 1.2s var(--ease) infinite; }
+@keyframes pulse { 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .wallet-btn.opening .dot { animation: none; } }
